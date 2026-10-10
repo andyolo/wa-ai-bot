@@ -2,62 +2,47 @@
 const { MessageMedia } = require('whatsapp-web.js');
 const sharp = require('sharp');
 
-function repairMessageId(msg) {
-    if (!msg?.id) return;
-
-    const id = msg.id;
-
-    // WhatsApp Web terbaru bisa menggunakan $1
-    // sebagai pengganti _serialized.
-    if (!id._serialized && id.$1) {
-        id._serialized = id.$1;
-    }
-
-    // Fallback jika $1 juga tidak tersedia.
-    if (!id._serialized && id.remote && id.id != null) {
-        const parts = [
-            id.fromMe,
-            id.remote,
-            id.id
-        ];
-
-        if (msg.author) {
-            parts.push(msg.author);
-        }
-
-        id._serialized = parts.join('_');
-    }
-}
-
 async function handleSticker(message, args = []) {
-    const fullMode =
-        (args[0] || '').toLowerCase() === '-f';
+    const fullMode = args.some(
+        arg => String(arg).toLowerCase() === '-f'
+    );
 
     try {
         let sourceMessage = message;
 
-        if (!message.hasMedia && message.hasQuotedMsg) {
-            const quoted = await message.getQuotedMessage();
+        // Ambil media dari pesan yang dibalas jika command
+        // tidak membawa media sendiri.
+        if (!sourceMessage.hasMedia && message.hasQuotedMsg) {
+            try {
+                const quoted = await message.getQuotedMessage();
 
-            if (quoted?.hasMedia) {
-                sourceMessage = quoted;
+                if (quoted?.hasMedia) {
+                    sourceMessage = quoted;
+                }
+            } catch (error) {
+                console.error(
+                    '[STICKER QUOTED ERROR]',
+                    error?.stack || error
+                );
             }
         }
 
         if (!sourceMessage.hasMedia) {
             await message.reply(
-                'Kirim foto dengan /s atau balas foto menggunakan /s jir.'
+                'Kirim foto bersama /s atau balas foto dengan /s jir.'
             );
             return;
         }
 
-        repairMessageId(sourceMessage);
-
-        console.log('[STICKER ID CHECK]', {
-            id: sourceMessage.id,
-            serialized: sourceMessage.id?._serialized
+        console.log('[STICKER MEDIA DEBUG]', {
+            hasMedia: sourceMessage.hasMedia,
+            type: sourceMessage.type,
+            mimetype: sourceMessage._data?.mimetype,
+            hasQuotedMsg: message.hasQuotedMsg,
+            id: sourceMessage.id?._serialized
         });
 
+        // Unduh media menggunakan API resmi whatsapp-web.js.
         let media;
 
         try {
@@ -69,31 +54,33 @@ async function handleSticker(message, args = []) {
             );
 
             await message.reply(
-                'Gagal mengunduh gambar. Cek log bot jir.'
+                'Gagal mengunduh media dari WhatsApp jir. Coba kirim ulang fotonya.'
             );
             return;
         }
 
         if (!media?.data) {
             await message.reply(
-                'Gambar tidak berhasil diunduh jir.'
+                'Data media kosong. Coba kirim ulang fotonya jir.'
             );
             return;
         }
 
         if (!media.mimetype?.startsWith('image/')) {
             await message.reply(
-                'Yang bisa dijadikan stiker cuma gambar jir.'
+                'Fitur ini baru mendukung gambar, video belum didukung jir.'
             );
             return;
         }
 
         const inputBuffer = Buffer.from(media.data, 'base64');
 
+        // -f mempertahankan seluruh gambar tanpa crop.
+        // Mode normal juga memakai contain agar gambar tidak terpotong.
         const resizeOptions = {
             width: 512,
             height: 512,
-            fit: fullMode ? 'cover' : 'contain',
+            fit: 'contain',
             position: 'centre',
             background: {
                 r: 0,
@@ -106,19 +93,26 @@ async function handleSticker(message, args = []) {
         let outputBuffer = await sharp(inputBuffer)
             .rotate()
             .resize(resizeOptions)
-            .webp({ quality: 80, effort: 4 })
+            .webp({
+                quality: fullMode ? 90 : 80,
+                effort: 5
+            })
             .toBuffer();
 
+        // Kompres lagi jika ukuran stiker melebihi 1 MB.
         if (outputBuffer.length > 1024 * 1024) {
             outputBuffer = await sharp(inputBuffer)
                 .rotate()
                 .resize(resizeOptions)
-                .webp({ quality: 55, effort: 5 })
+                .webp({
+                    quality: 55,
+                    effort: 6
+                })
                 .toBuffer();
         }
 
         if (outputBuffer.length > 1024 * 1024) {
-            throw new Error('Hasil stiker melebihi 1 MB.');
+            throw new Error('Ukuran stiker melebihi 1 MB.');
         }
 
         const sticker = new MessageMedia(
@@ -132,7 +126,7 @@ async function handleSticker(message, args = []) {
             sticker,
             {
                 sendMediaAsSticker: true,
-                stickerName: 'LRV BOT',
+                stickerName: fullMode ? 'LRV BOT FULL' : 'LRV BOT',
                 stickerAuthor: 'Lrv Squad',
                 stickerCategories: ['🤖']
             }

@@ -286,15 +286,6 @@ async function downloadYouTubeMP3(videoUrl) {
 
     return outputPath;
 }
-// ==================================================
-// KUALITAS AUDIO /play
-//
-// Setelan lama: -application voip, mono, 64 kbps.
-// Itu dioptimalkan untuk SUARA NGObrol, bukan musik.
-// Hasilnya: stereo hilang, detail lagu gepeng.
-//
-// Sekarang: profil audio, stereo, bitrate lebih tinggi.
-// ==================================================
 
 const PLAY_AUDIO_BITRATE =
     process.env.PLAY_AUDIO_BITRATE || '96k';
@@ -807,13 +798,16 @@ switch (command) {
 ┃ /pin
 ┃ /pixiv
 ┃ /hd
-┃ 
-┃ FITUR DALAM TAHAP PERKEMBANGAN
-┃ /nsfw 
 ┃ /s
+┃ /nsfw
+┃
+┃
+┃ FITUR DALAM TAHAP PERKEMBANGAN
+┃ /owner
+┃ 
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
-┃ /owner
+┃ /owner / Masih tahap pengembangan
 ┃
 ┃ ASISTEN AI ZOIX
 ┃ /ai
