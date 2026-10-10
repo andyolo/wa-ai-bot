@@ -1,0 +1,1180 @@
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+const { MessageMedia } = require('whatsapp-web.js');
+
+
+// ==================================================
+// KONFIGURASI
+// ==================================================
+
+const UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/154.0.0.0 Safari/537.36';
+
+// Izinkan konten R-18?
+// Nilai ini bisa diubah SAAT BOT JALAN lewat /nsfw on|off,
+// dan otomatis disimpan ke .env supaya tahan restart.
+// Makanya pakai 'let', bukan 'const'.
+let allowR18 =
+    String(process.env.PIXIV_ALLOW_R18 || 'false')
+        .toLowerCase() === 'true';
+
+// Maksimal halaman yang dikirim per artwork
+const MAX_PAGES =
+    parseInt(process.env.PIXIV_MAX_PAGES || '10', 10);
+
+// Kualitas gambar: regular (maks 1200px) | original
+// WhatsApp toh mengompres ke ~1600px, jadi 'regular'
+// hasil akhirnya mirip tapi jauh lebih cepat & ringan.
+const QUALITY =
+    String(process.env.PIXIV_QUALITY || 'regular')
+        .toLowerCase() === 'original'
+        ? 'original'
+        : 'regular';
+
+// Pengaman ukuran. Hanya berguna kalau kamu set
+// PIXIV_QUALITY=original, karena 'regular' selalu kecil.
+const MAX_SEND_MB =
+    parseFloat(process.env.PIXIV_MAX_SEND_MB || '5');
+
+const MAX_SEND_BYTES =
+    (isNaN(MAX_SEND_MB) ? 5 : MAX_SEND_MB) * 1024 * 1024;
+
+// Batas kandidat hasil search yang diacak
+const MAX_CANDIDATES = 30;
+
+// Peluang mendapat karya R-18 saat NSFW aktif (persen).
+// 60 = separuh R-18, separuh aman.
+const R18_ANGKA = parseInt(process.env.PIXIV_R18_CHANCE || '60', 10);
+const R18_CHANCE = isNaN(R18_ANGKA)
+    ? 60
+    : Math.min(100, Math.max(0, R18_ANGKA));
+
+// Jeda antar halaman (ms).
+//
+// JANGAN dikecilkan tanpa alasan. WhatsApp Web bisa
+// me-reload halamannya sendiri kalau dikirimi banyak
+// gambar terlalu cepat. Kalau itu terjadi di tengah
+// proses, puppeteer kehilangan halaman yang dipakai
+// dan error-nya jadi "Attempted to use detached Frame".
+const DELAY_MS = parseInt(process.env.PIXIV_DELAY_MS || '2000', 10) || 2000;
+
+// Lama menunggu sebelum mencoba ulang setelah
+// koneksi WhatsApp Web ketahuan putus.
+const RECOVERY_MS = parseInt(process.env.PIXIV_RECOVERY_MS || '6000', 10) || 6000;
+
+// Daftar tag yang SELALU disaring, walau ratingnya aman.
+//
+// Kenapa perlu? Karena konten jorok di Pixiv TIDAK selalu
+// ditandai R-18G. Hasil pengukuran: dari 4 karya bertag
+// scat, hanya 1 yang R-18G - 3 lainnya lolos, bahkan ada
+// 1 yang berating AMAN.
+//
+// Pencocokan memakai TAG PERSIS (bukan "mengandung"),
+// supaya tag tak bersalah seperti ホブルスカート (rok) dan
+// スカイライダー (Kamen Rider) tidak ikut kena.
+//
+// Bisa diganti lewat PIXIV_BLOCK_TAGS di .env (pisah koma).
+const DEFAULT_BLOCK_TAGS = [
+    'スカトロ',   // scat
+    'スカ',       // scat
+    '大スカ',     // scat
+    '男スカ',     // scat pria
+    '女スカ',     // scat wanita
+    '排泄',       // ekskresi
+    '脱糞',       // buang air besar
+    '放尿',       // kencing
+    '聖水',       // eufemisme kencing
+    'おもらし',   // ngompol
+    '糞',         // tinja
+    'うんこ',     // tinja
+    'グロ',       // grotesque
+    '猟奇',       // kejam / aneh
+    'リョナ',     // ryona
+    'おしっこ',   // kencing
+    '尿',         // air seni
+    '妊娠',       // kehamilan
+    '妊婦',       // ibu hamil
+    '孕',         // hamil
+    '孕肚',       // perut hamil
+    '出産',       // melahirkan
+    'AI生成',     // karya AI (cadangan, biasanya kena aiType)
+    'AIイラスト', // ilustrasi AI
+    'NovelAI'     // karya NovelAI
+];
+
+const BLOCK_TAGS = (
+    process.env.PIXIV_BLOCK_TAGS
+        ? String(process.env.PIXIV_BLOCK_TAGS).split(',')
+        : DEFAULT_BLOCK_TAGS
+)
+    .map(t => String(t).trim().toLowerCase())
+    .filter(Boolean);
+
+// Lokasi .env, dihitung dari posisi file ini
+// (features/pixiv/pixiv.js -> naik 2 tingkat)
+const ENV_PATH = path.join(__dirname, '..', '..', '.env');
+
+
+// ==================================================
+// PENGATURAN NSFW (R-18) SAAT BOT JALAN
+// ==================================================
+
+// Tulis ulang baris PIXIV_ALLOW_R18 di .env tanpa
+// merusak baris lain.
+function persistR18(value) {
+
+    try {
+
+        if (!fs.existsSync(ENV_PATH)) {
+            console.error('PIXIV: .env tidak ditemukan di', ENV_PATH);
+            return false;
+        }
+
+        const isiAsli = fs.readFileSync(ENV_PATH, 'utf8');
+
+        const baris = isiAsli.split(/\r?\n/);
+
+        let ketemu = false;
+
+        const barisBaru = baris.map(line => {
+
+            if (/^\s*PIXIV_ALLOW_R18\s*=/.test(line)) {
+                ketemu = true;
+                return 'PIXIV_ALLOW_R18=' + value;
+            }
+
+            return line;
+        });
+
+        if (!ketemu) {
+            barisBaru.push('PIXIV_ALLOW_R18=' + value);
+        }
+
+        fs.writeFileSync(
+            ENV_PATH,
+            barisBaru.join('\n'),
+            'utf8'
+        );
+
+        return true;
+
+    } catch (error) {
+
+        console.error('PIXIV GAGAL SIMPAN .env:', error);
+        return false;
+    }
+}
+
+// Dipanggil dari index.js saat /nsfw on|off
+function setR18(enabled) {
+
+    allowR18 = Boolean(enabled);
+
+    const tersimpan = persistR18(
+        allowR18 ? 'true' : 'false'
+    );
+
+    console.log(
+        '[PIXIV] NSFW diubah jadi:', allowR18,
+        '| tersimpan ke .env:', tersimpan
+    );
+
+    return { allowR18, tersimpan };
+}
+
+function getR18() {
+    return allowR18;
+}
+
+
+// ==================================================
+// COOKIE LOGIN PIXIV
+//
+// Tanpa login, Pixiv MENYEMBUNYIKAN semua karya R-18
+// dari hasil search - walau mode=all sekalipun.
+// Sudah diuji: 4 tag berbeda + mode=r18, hasilnya 0.
+//
+// Jadi R-18 di search HANYA bisa didapat kalau bot
+// memakai cookie login.
+//
+// PIXIV_COOKIE menerima dua bentuk:
+//   1. Cookie lengkap : "PHPSESSID=abc; device_token=xyz"
+//   2. Cuma session id: "abc"  -> otomatis jadi PHPSESSID=abc
+//
+// PIXIV_PHPSESSID masih diterima sebagai alias.
+//
+// PENTING: cookie ini setara password akun Pixiv.
+// Kalau bocor, orang lain bisa memakai akunmu.
+// ==================================================
+
+const RAW_COOKIE = String(
+    process.env.PIXIV_COOKIE ||
+    process.env.PIXIV_PHPSESSID ||
+    ''
+).trim();
+
+// Kalau isinya nggak ada tanda '=', berarti cuma
+// nilai session id polos.
+const COOKIE_HEADER = RAW_COOKIE
+    ? (RAW_COOKIE.includes('=')
+        ? RAW_COOKIE
+        : `PHPSESSID=${RAW_COOKIE}`)
+    : '';
+
+// Jadi true kalau Pixiv menolak cookie kita (HTTP 401).
+let cookieExpired = false;
+
+// Supaya peringatan "tidak ada R-18" cuma muncul SEKALI
+// per proses. Banyak tag memang wajar tanpa karya R-18,
+// jadi jangan sampai log jadi penuh peringatan palsu.
+let sudahPeringatkanR18 = false;
+
+function buildHeaders() {
+
+    const headers = {
+        'User-Agent': UA,
+        'Accept-Language': 'ja-JP,ja;q=0.9,en;q=0.8',
+        'Referer': 'https://www.pixiv.net/'
+    };
+
+    if (COOKIE_HEADER && !cookieExpired) {
+        headers.Cookie = COOKIE_HEADER;
+    }
+
+    return headers;
+}
+
+console.log(
+    '[PIXIV] Login:',
+    COOKIE_HEADER ? 'AKTIF' : 'TANPA LOGIN',
+    '| NSFW:',
+    allowR18 ? 'AKTIF' : 'MATI'
+);
+
+console.log(
+    '[PIXIV] Tag disaring:',
+    BLOCK_TAGS.length,
+    'buah'
+);
+
+console.log(
+    '[PIXIV] Jeda antar halaman:',
+    DELAY_MS,
+    'ms | pemulihan:',
+    RECOVERY_MS,
+    'ms'
+);
+
+if (!COOKIE_HEADER) {
+    console.log(
+        '[PIXIV] Tanpa login, R-18 tidak akan muncul di search ' +
+        '(batasan Pixiv, bukan bug).'
+    );
+}
+
+
+// ==================================================
+// UTIL
+// ==================================================
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function mb(bytes) {
+    return (bytes / 1048576).toFixed(2) + ' MB';
+}
+
+function safeUnlink(filePath) {
+
+    try {
+
+        if (filePath && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+    } catch (error) {
+
+        console.error('PIXIV UNLINK ERROR:', error);
+    }
+}
+
+async function fetchJson(url) {
+
+    const request = () => fetch(url, {
+        headers: buildHeaders(),
+        signal: AbortSignal.timeout(30000)
+    });
+
+    let response = await request();
+
+    // Pixiv membalas 401 + "PHPSESSID=deleted" kalau
+    // cookie-nya sudah nggak valid. Daripada fiturnya
+    // ikut mati, kita turun ke mode tanpa login.
+    if (
+        response.status === 401 &&
+        COOKIE_HEADER &&
+        !cookieExpired
+    ) {
+
+        cookieExpired = true;
+
+        console.warn(
+            '[PIXIV] Cookie ditolak Pixiv (HTTP 401). ' +
+            'Kemungkinan sudah expired. ' +
+            'Lanjut mode tanpa login - R-18 tidak akan muncul. ' +
+            'Ambil PHPSESSID baru lalu update .env.'
+        );
+
+        response = await request();
+    }
+
+    if (response.status === 401) {
+        throw new Error(
+            'Ditolak Pixiv (401). Cookie tidak valid.'
+        );
+    }
+
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+    }
+
+    const json = await response.json();
+
+    if (json.error) {
+        throw new Error(
+            json.message || 'Pixiv mengembalikan error'
+        );
+    }
+
+    return json.body;
+}
+
+function extractIllustId(input) {
+
+    const patterns = [
+        /artworks\/(\d+)/i,
+        /[?&]illust_id=(\d+)/i,
+        /^(\d{6,})$/
+    ];
+
+    for (const pattern of patterns) {
+
+        const match = input.match(pattern);
+
+        if (match) {
+            return match[1];
+        }
+    }
+
+    return null;
+}
+
+// Cek apakah daftar tag sebuah karya kena saringan.
+// Mencocokkan TAG PERSIS, bukan "mengandung".
+// Mengembalikan nama tag yang kena, atau null.
+function kenaBlokir(tags) {
+
+    if (!BLOCK_TAGS.length) {
+        return null;
+    }
+
+    for (const t of (tags || [])) {
+
+        const bersih = String(t).trim().toLowerCase();
+
+        if (BLOCK_TAGS.includes(bersih)) {
+            return bersih;
+        }
+    }
+
+    return null;
+}
+
+function extFromUrl(url) {
+
+    const match = url
+        .split('?')[0]
+        .match(/\.(jpg|jpeg|png|gif|webp)$/i);
+
+    return match
+        ? '.' + match[1].toLowerCase()
+        : '.jpg';
+}
+
+
+// ==================================================
+// SEARCH PIXIV
+// ==================================================
+
+async function searchPixiv(keyword) {
+
+    console.log('PIXIV SEARCH:', keyword);
+    console.log(
+        'PIXIV MODE:',
+        COOKIE_HEADER && !cookieExpired
+            ? 'LOGIN'
+            : 'TANPA LOGIN',
+        '| NSFW:',
+        allowR18 ? 'AKTIF' : 'MATI'
+    );
+
+    const word = encodeURIComponent(keyword);
+
+    const url =
+        'https://www.pixiv.net/ajax/search/artworks/' +
+        word +
+        '?word=' + word +
+        '&order=date_d' +
+        '&mode=all' +
+        '&p=1' +
+        '&s_mode=s_tag' +
+        '&type=all' +
+        '&lang=ja';
+
+    const body = await fetchJson(url);
+
+    const data =
+        (body && body.illustManga && body.illustManga.data) || [];
+
+    const jumlahR18 = data.filter(
+        item => item && item.xRestrict === 1
+    ).length;
+
+    console.log(
+        'PIXIV SEARCH HASIL:',
+        data.length,
+        '| R-18:',
+        jumlahR18,
+        '| NSFW:',
+        allowR18 ? 'AKTIF' : 'MATI'
+    );
+
+    // Kalau sudah login tapi R-18 tetap 0, hampir pasti
+    // setting tampilan R-18 di akun Pixiv belum dinyalakan.
+    if (
+        COOKIE_HEADER &&
+        !cookieExpired &&
+        jumlahR18 === 0 &&
+        !sudahPeringatkanR18
+    ) {
+
+        sudahPeringatkanR18 = true;
+
+        console.warn(
+            '[PIXIV] Catatan: search ini tidak menghasilkan R-18. ' +
+            'Kalau tag lain juga selalu 0, baru cek setting ' +
+            'tampilan R-18 (閲覧設定) di akun Pixiv. ' +
+            'Tag yang memang bersih itu wajar 0.'
+        );
+    }
+
+    return data;
+}
+
+
+// ==================================================
+// AMBIL DETAIL + SEMUA HALAMAN
+//
+// Tiap halaman disimpan sebagai objek berisi semua
+// varian URL, supaya bisa turun kualitas kalau perlu.
+// ==================================================
+
+function toPage(urls) {
+
+    return {
+        original: urls.original,
+        regular: urls.regular,
+        small: urls.small,
+        thumb: urls.thumb
+    };
+}
+
+async function getIllust(id) {
+
+    console.log('PIXIV DETAIL:', id);
+
+    const detail = await fetchJson(
+        `https://www.pixiv.net/ajax/illust/${id}?lang=ja`
+    );
+
+    let pages = [];
+
+    if (detail.pageCount > 1) {
+
+        const pageData = await fetchJson(
+            `https://www.pixiv.net/ajax/illust/${id}/pages?lang=ja`
+        );
+
+        pages = (pageData || []).map(
+            item => toPage(item.urls)
+        );
+    }
+
+    if (!pages.length) {
+        pages = [toPage(detail.urls)];
+    }
+
+    return { detail, pages };
+}
+
+
+// ==================================================
+// DOWNLOAD GAMBAR
+// ==================================================
+
+async function downloadImage(url, outputPath) {
+
+    const response = await fetch(url, {
+        headers: buildHeaders(),
+        signal: AbortSignal.timeout(120000)
+    });
+
+    if (!response.ok) {
+        throw new Error(`Download HTTP ${response.status}`);
+    }
+
+    const buffer = Buffer.from(
+        await response.arrayBuffer()
+    );
+
+    fs.writeFileSync(outputPath, buffer);
+
+    return buffer.length;
+}
+
+
+// ==================================================
+// KIRIM GAMBAR KE WHATSAPP
+//
+// PENTING - JANGAN DIUBAH SEMBARANGAN:
+//
+//   message.reply(content, chatId, options)
+//
+// Argumen KEDUA adalah chatId, BUKAN caption!
+// Kalau caption ditaruh di argumen kedua, whatsapp-web.js
+// menganggapnya sebagai ID chat, gagal menemukan chat-nya,
+// dan error yang muncul cuma "t" dari kode minified
+// WhatsApp (sangat sulit dilacak).
+//
+// Caption HARUS lewat options.caption.
+// Lihat: node_modules/whatsapp-web.js/src/Client.js:1462
+// ==================================================
+
+async function sendImage(message, imagePath, caption) {
+
+    const media = MessageMedia.fromFilePath(imagePath);
+
+    await message.reply(
+        media,
+        undefined,
+        {
+            caption: caption,
+            sendMediaAsDocument: false
+        }
+    );
+}
+
+
+// ==================================================
+// TAHAN BANTING: KONEKSI WHATSAPP WEB PUTUS
+// ==================================================
+
+// Pola error yang menandakan halaman WhatsApp Web
+// sudah tidak bisa dipakai lagi (ter-reload / mati).
+const POLA_PUTUS = /detached|session closed|target closed|execution context was destroyed|protocol error|connection closed|page crashed/i;
+
+function koneksiPutus(error) {
+
+    const pesan = String((error && error.message) || error || '');
+
+    return POLA_PUTUS.test(pesan);
+}
+
+// Kirim satu halaman. Kalau gagal karena koneksi putus,
+// tunggu sebentar lalu coba SEKALI lagi.
+//
+// Mengembalikan { ok, pulih, fatal, error }:
+//   ok    -> berhasil terkirim
+//   pulih -> berhasil setelah dicoba ulang
+//   fatal -> koneksi putus dan tidak pulih (STOP)
+async function kirimDenganPulih(message, imagePath, pageCaption, nomor) {
+
+    try {
+
+        await sendImage(message, imagePath, pageCaption);
+
+        return { ok: true, pulih: false };
+
+    } catch (error) {
+
+        if (!koneksiPutus(error)) {
+            return { ok: false, fatal: false, error: error };
+        }
+
+        console.warn(
+            `PIXIV HALAMAN ${nomor}: koneksi WhatsApp Web terputus.` +
+            ` Menunggu ${RECOVERY_MS} ms lalu coba sekali lagi...`
+        );
+
+        await delay(RECOVERY_MS);
+
+        try {
+
+            await sendImage(message, imagePath, pageCaption);
+
+            return { ok: true, pulih: true };
+
+        } catch (errorUlang) {
+
+            return { ok: false, fatal: true, error: errorUlang };
+        }
+    }
+}
+
+// Kasih tahu user kalau proses dihentikan di tengah jalan.
+// Dibungkus try/catch karena kalau koneksinya memang mati,
+// pesan ini pun bisa ikut gagal.
+async function kabariBerhenti(message, nomor, total) {
+
+    try {
+
+        await message.reply(
+            '⚠️ Koneksi WhatsApp Web sempat terputus di tengah proses.\n\n' +
+            `Berhenti di halaman ${nomor} dari ${total}.\n` +
+            'Coba kirim ulang perintahnya beberapa saat lagi.'
+        );
+
+    } catch (error) {
+
+        console.error(
+            'PIXIV: gagal kirim pesan pemberitahuan:',
+            error && error.message
+        );
+    }
+}
+
+// ==================================================
+// HANDLER UTAMA
+// ==================================================
+
+async function handlePixiv(message, input, client) {
+
+    const files = [];
+
+    try {
+
+        if (!input) {
+
+            await message.reply(
+                '❌ Masukkan kata kunci atau link Pixiv woy.\n\n' +
+                'Contoh:\n' +
+                '/pixiv kucing\n' +
+                '/pixiv hatsune miku\n' +
+                '/pixiv https://www.pixiv.net/artworks/123456'
+            );
+
+            return;
+        }
+
+        await message.reply('⏳ Nyari di Pixiv sabar...');
+
+        const directId = extractIllustId(input);
+
+        let illustId = directId;
+        let illust = null;
+
+        // ==================================================
+        // MODE LINK
+        // ==================================================
+
+        if (directId) {
+
+            console.log('PIXIV MODE: LINK', directId);
+
+            illust = await getIllust(directId);
+
+        }
+
+        // ==================================================
+        // MODE SEARCH
+        // ==================================================
+
+        else {
+
+            const results = await searchPixiv(input);
+
+            // Buang entri kosong, ugoira (animasi), & R-18.
+            //
+            // Catatan: Pixiv suka menyelipkan 1 entri KOSONG
+            // (tanpa 'id') di hasil search. Kalau entri itu lolos
+            // dan terpilih acak, bot gagal dengan "id undefined".
+            // Jadi cek '!item.id' harus SELALU jalan, terlepas
+            // dari setting NSFW.
+            const candidates = results.filter(item => {
+
+                if (!item || !item.id) {
+                    return false;
+                }
+
+                if (item.illustType === 2) {
+                    return false;
+                }
+
+                // R-18G (ero-guro / gore) SELALU dibuang,
+                // walau NSFW sedang aktif. Konten gore beda
+                // kelas dengan R-18 biasa.
+                if (item.xRestrict === 2) {
+                    return false;
+                }
+
+                // Tag jorok (scat dll) SELALU dibuang,
+                // karena sering tidak ditandai R-18G.
+                if (kenaBlokir(item.tags)) {
+                    return false;
+                }
+
+                // Karya AI SELALU dibuang.
+                //
+                // Pixiv menandainya dengan aiType = 2.
+                // Sudah diuji: tag "AIイラスト" -> 59 dari 60
+                // item punya aiType 2, sedangkan aiType 1 =
+                // karya buatan manusia. Jadi tidak perlu
+                // menebak-nebak dari tag.
+                if (item.aiType === 2) {
+                    return false;
+                }
+
+                if (!allowR18 && item.xRestrict !== 0) {
+                    return false;
+                }
+
+                return true;
+            });
+
+            console.log(
+                'PIXIV KANDIDAT AMAN:',
+                candidates.length,
+                'dari',
+                results.length,
+                '| aman + R-18 dibuang:',
+                results.length - candidates.length
+            );
+
+            if (!candidates.length) {
+
+                await message.reply(
+                    '❌ Nggak ada hasil yang cocok ah males.\n' +
+                    'Coba kata kunci lain, atau pakai tag Jepang kek.'
+                );
+
+                return;
+            }
+
+            // ==================================================
+            // UNDIAN R-18
+            //
+            // Kalau NSFW aktif, hasilnya TIDAK selalu R-18.
+            // Kandidat dipisah dulu, lalu diundi sesuai
+            // persentase (default 50%).
+            // ==================================================
+
+            const kandidatAman = candidates.filter(
+                x => x.xRestrict === 0
+            );
+
+            const kandidatR18 = candidates.filter(
+                x => x.xRestrict !== 0
+            );
+
+            let pool;
+
+            if (allowR18 && kandidatR18.length && kandidatAman.length) {
+
+                const pilihR18 = Math.random() * 100 < R18_CHANCE;
+
+                pool = pilihR18 ? kandidatR18 : kandidatAman;
+
+                console.log(
+                    `PIXIV UNDIAN: peluang R-18 ${R18_CHANCE}% ->`,
+                    pilihR18 ? 'R-18' : 'AMAN',
+                    `(aman ${kandidatAman.length}, R-18 ${kandidatR18.length})`
+                );
+
+            } else {
+
+                pool = kandidatAman.length
+                    ? kandidatAman
+                    : (kandidatR18.length ? kandidatR18 : candidates);
+            }
+
+            pool = pool.slice(0, MAX_CANDIDATES);
+
+            const pick =
+                pool[Math.floor(Math.random() * pool.length)];
+
+            console.log('PIXIV DIPILIH:', pick.id, pick.title);
+
+            illustId = pick.id;
+
+            illust = await getIllust(pick.id);
+        }
+
+        const detail = illust.detail;
+        const pages = illust.pages;
+
+        // ==================================================
+        // VALIDASI
+        // ==================================================
+
+        if (detail.illustType === 2) {
+
+            await message.reply(
+                '❌ Karya ini ugoira (animasi), belum didukung tunggu update ya.'
+            );
+
+            return;
+        }
+
+        if (detail.xRestrict === 2) {
+
+            await message.reply(
+                '🚫 Karya ini tidak pantas.\n' +
+                'Konten ini dinyalakan tolong di gunakan dengan bijak bro.'
+            );
+
+            return;
+        }
+
+        const tagDiblokir = kenaBlokir(
+            ((detail.tags && detail.tags.tags) || [])
+                .map(t => t.tag)
+        );
+
+        if (tagDiblokir) {
+
+            await message.reply(
+                '🚫 Karya ini mengandung tag yang disaring' +
+                ` (${tagDiblokir}).`
+            );
+
+            return;
+        }
+
+        if (!allowR18 && detail.xRestrict !== 0) {
+
+            await message.reply(
+                '🔞 Karya ini R-18.\n' +
+                'Ketik /nsfw on kalau memang mau ditampilkan.'
+            );
+
+            return;
+        }
+
+        const limit = Math.max(1, MAX_PAGES);
+
+        const selected = pages.slice(0, limit);
+
+        // ==================================================
+        // TEMP FOLDER
+        // ==================================================
+
+        const tempDir = path.join(
+            os.tmpdir(),
+            'wa-bot-pixiv'
+        );
+
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+
+        const timestamp = Date.now();
+
+        const potong =
+            pages.length > limit
+                ? ` (dikirim ${limit})`
+                : '';
+
+        await message.reply(
+            `🎨 ${detail.illustTitle}\n` +
+            `👤 ${detail.userName}\n` +
+            `🖼️ ${detail.pageCount} halaman${potong}\n` +
+            (allowR18
+                ? `🔞 NSFW: AKTIF (peluang ${R18_CHANCE}%)\n`
+                : '✅ NSFW: OFF\n') +
+            '\n📥 Otw bro...'
+        );
+
+        const caption =
+            `🎨 ${detail.illustTitle}\n` +
+            `👤 ${detail.userName}\n` +
+            `🔗 https://www.pixiv.net/artworks/${illustId}`;
+
+        // ==================================================
+        // DOWNLOAD + KIRIM SEMUA HALAMAN
+        // ==================================================
+
+        for (let i = 0; i < selected.length; i++) {
+
+            const page = selected[i];
+
+            const firstUrl = page[QUALITY] || page.original;
+
+            let imagePath = path.join(
+                tempDir,
+                `pixiv_${timestamp}_p${i}` +
+                extFromUrl(firstUrl)
+            );
+
+            try {
+
+                let size = await downloadImage(
+                    firstUrl,
+                    imagePath
+                );
+
+                console.log(
+                    `PIXIV HALAMAN ${i + 1}/${selected.length} READY:`,
+                    mb(size),
+                    `(${QUALITY})`
+                );
+
+                // ==========================================
+                // PENGAMAN: kalau kegedean, turun ke regular
+                // ==========================================
+
+                if (
+                    size > MAX_SEND_BYTES &&
+                    page.regular &&
+                    firstUrl !== page.regular
+                ) {
+
+                    console.log(
+                        `PIXIV HALAMAN ${i + 1} KELEBIHAN ` +
+                        `(${mb(size)} > ${MAX_SEND_MB} MB), ` +
+                        'turun ke regular...'
+                    );
+
+                    const altPath = path.join(
+                        tempDir,
+                        `pixiv_${timestamp}_p${i}_alt` +
+                        extFromUrl(page.regular)
+                    );
+
+                    try {
+
+                        const altSize = await downloadImage(
+                            page.regular,
+                            altPath
+                        );
+
+                        safeUnlink(imagePath);
+
+                        imagePath = altPath;
+                        size = altSize;
+
+                        console.log(
+                            `PIXIV HALAMAN ${i + 1} TURUN KE REGULAR:`,
+                            mb(size)
+                        );
+
+                    } catch (altError) {
+
+                        console.error(
+                            `PIXIV HALAMAN ${i + 1} GAGAL TURUN KUALITAS:`,
+                            altError && altError.message
+                        );
+
+                        safeUnlink(altPath);
+                    }
+                }
+
+                files.push(imagePath);
+
+                const pageCaption =
+                    selected.length > 1
+                        ? `${i + 1}/${selected.length}\n${caption}`
+                        : caption;
+
+                const hasilKirim = await kirimDenganPulih(
+                    message,
+                    imagePath,
+                    pageCaption,
+                    i + 1
+                );
+
+                if (hasilKirim.ok) {
+
+                    console.log(
+                        `PIXIV HALAMAN ${i + 1} SENT` +
+                        (hasilKirim.pulih ? ' (setelah pulih)' : '')
+                    );
+
+                } else if (hasilKirim.fatal) {
+
+                    // Koneksi putus dan tidak pulih. Percuma
+                    // lanjut - halaman berikutnya pasti gagal
+                    // juga, dan cuma bikin antrean numpuk.
+                    console.error(
+                        `PIXIV DIHENTIKAN di halaman ${i + 1}` +
+                        ` dari ${selected.length}: koneksi putus.`
+                    );
+
+                    await kabariBerhenti(message, i + 1, selected.length);
+
+                    break;
+
+                } else {
+
+                    console.error(
+                        `PIXIV HALAMAN ${i + 1} GAGAL KIRIM:`,
+                        hasilKirim.error && hasilKirim.error.message
+                    );
+                }
+
+            }
+
+            catch (pageError) {
+
+                console.error(
+                    `PIXIV HALAMAN ${i + 1} GAGAL:`,
+                    '[name]', pageError && pageError.name,
+                    '[message]', pageError && pageError.message,
+                    '[stack]', pageError && pageError.stack
+                );
+            }
+
+            // jeda biar WhatsApp Web nggak kebanjiran
+            if (i < selected.length - 1) {
+                await delay(DELAY_MS);
+            }
+
+        }
+
+        if (!files.length) {
+            throw new Error('Semua halaman gagal diunduh');
+        }
+
+    }
+
+    catch (error) {
+
+        console.error('PIXIV ERROR:', error);
+
+        await message.reply(
+            '❌ Gagal mengambil gambar Pixiv.\n' +
+            'Cek kata kunci atau lihat log PM2.'
+        );
+
+    }
+
+    finally {
+
+        for (const file of files) {
+
+            safeUnlink(file);
+
+            console.log(
+                'PIXIV DELETED:',
+                path.basename(file)
+            );
+        }
+    }
+}
+
+
+// ==================================================
+// EXPORT
+// ==================================================
+
+module.exports = {
+    handlePixiv,
+    setR18,
+    getR18
+};
+
+
+// ==================================================
+// CATATAN PENTING (jangan dihapus)
+// ==================================================
+//
+// 1. CAPTION BUKAN ARGUMEN KEDUA
+//
+//    message.reply(content, chatId, options)
+//
+//    Argumen kedua = chatId. Caption harus di
+//    options.caption. Kalau ketuker, error yang muncul
+//    cuma "Evaluation failed: t" dari kode minified
+//    WhatsApp dan sangat sulit dilacak.
+//    Ini pernah jadi bug di file ini - jangan diulang.
+//
+// 2. R-18 DI SEARCH BUTUH LOGIN
+//
+//    Tanpa cookie login, Pixiv menyembunyikan SEMUA
+//    karya R-18 dari search, walau pakai mode=all atau
+//    mode=r18. Sudah diuji dengan 4 tag: hasilnya 0.
+//    Jadi kalau pengen R-18 muncul di /pixiv <keyword>,
+//    wajib isi PIXIV_COOKIE di .env.
+//
+//    Tambahan: setting tampilan R-18 (閲覧設定) di akun
+//    Pixiv juga harus dinyalakan. Akun baru default-nya
+//    menyembunyikan R-18.
+//
+// 3. NSFW BISA DIUBAH SAAT BOT JALAN
+//
+//    /nsfw on  -> allowR18 = true,  ditulis ke .env
+//    /nsfw off -> allowR18 = false, ditulis ke .env
+//
+//    Ditulis ke .env supaya setelannya tahan restart.
+//    Kalau gagal menulis .env, setelannya tetap jalan
+//    di memori tapi hilang saat bot di-restart.
+//
+//    PENTING: R-18G (ero-guro / gore) SELALU disaring
+//    di dua tempat - filter search dan validasi link -
+//    walau NSFW sedang aktif. Jangan dihapus tanpa
+//    sadar konsekuensinya.
+//
+// 3b. SARINGAN TAG JOROK (PIXIV_BLOCK_TAGS)
+//
+//    Konten jorok di Pixiv TIDAK selalu ditandai R-18G.
+//    Hasil ukur: dari 4 karya bertag scat, hanya 1 yang
+//    R-18G - 3 lolos, bahkan 1 berating AMAN.
+//
+//    Makanya ada saringan berbasis tag. Pencocokannya
+//    TAG PERSIS supaya ホブルスカート (rok) dan
+//    スカイライダー (Kamen Rider) tidak ikut kena.
+//
+//    Ubah daftarnya lewat PIXIV_BLOCK_TAGS di .env.
+//
+// 4. COOKIE EXPIRED TIDAK BIKIN FITUR MATI
+//
+//    Pixiv membalas HTTP 401 + "PHPSESSID=deleted"
+//    kalau cookie sudah tidak valid. Bot mendeteksinya
+//    dan otomatis lanjut tanpa login, jadi fitur tetap
+//    jalan (hanya R-18-nya yang hilang).
+//
+// 5. KONEKSI WHATSAPP WEB BISA PUTUS DI TENGAH KIRIM
+//
+//    WhatsApp Web kadang me-reload halamannya sendiri
+//    kalau dikirimi banyak gambar beruntun. Puppeteer
+//    lalu kehilangan halamannya dan error-nya jadi
+//    "Attempted to use detached Frame".
+//
+//    Penanganannya:
+//      - jeda antar halaman diperbesar (PIXIV_DELAY_MS)
+//      - kalau error ini muncul, tunggu RECOVERY_MS lalu
+//        coba kirim SEKALI lagi
+//      - kalau tetap gagal, proses DIHENTIKAN dan user
+//        dikasih tahu, bukan lanjut coba halaman sisa
+//        yang sudah pasti gagal juga
+//
+// 6. KENAPA DEFAULT-NYA 'regular'
+//
+//    Gambar 'original' Pixiv bisa 18 MB, sedangkan
+//    'regular' maksimal 1200px (~800 KB). WhatsApp
+//    sendiri mengompres ke ~1600px, jadi hasil akhir
+//    di HP penerima hampir sama tapi jauh lebih cepat.
