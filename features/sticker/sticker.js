@@ -1,4 +1,3 @@
-
 const { MessageMedia } = require('whatsapp-web.js');
 const sharp = require('sharp');
 
@@ -10,8 +9,7 @@ async function handleSticker(message, args = []) {
     try {
         let sourceMessage = message;
 
-        // Ambil media dari pesan yang dibalas jika command
-        // tidak membawa media sendiri.
+        // Ambil media dari pesan yang dibalas jika diperlukan.
         if (!sourceMessage.hasMedia && message.hasQuotedMsg) {
             try {
                 const quoted = await message.getQuotedMessage();
@@ -38,32 +36,123 @@ async function handleSticker(message, args = []) {
             hasMedia: sourceMessage.hasMedia,
             type: sourceMessage.type,
             mimetype: sourceMessage._data?.mimetype,
-            hasQuotedMsg: message.hasQuotedMsg,
             id: sourceMessage.id?._serialized
         });
 
-        // Unduh media menggunakan API resmi whatsapp-web.js.
+        // Download media dengan metode standar terlebih dahulu.
         let media;
 
         try {
             media = await sourceMessage.downloadMedia();
         } catch (error) {
             console.error(
-                '[STICKER DOWNLOAD ERROR]',
+                '[STICKER STANDARD DOWNLOAD ERROR]',
                 error?.stack || error
             );
+        }
 
-            await message.reply(
-                'Gagal mengunduh media dari WhatsApp jir. Coba kirim ulang fotonya.'
+        // Fallback melalui WhatsApp Web jika metode standar gagal.
+        if (!media?.data) {
+            console.warn(
+                '[STICKER] Mencoba download melalui WhatsApp Web...'
             );
-            return;
+
+            const messageId = sourceMessage.id;
+
+            const serializedId =
+                messageId?._serialized ||
+                (messageId?.remote && messageId?.id
+                    ? `${messageId.fromMe ? 'true' : 'false'}_${messageId.remote}_${messageId.id}${messageId.participant ? `_${messageId.participant}` : ''}`
+                    : null);
+
+            if (!serializedId) {
+                throw new Error(
+                    'ID pesan tidak valid: ' +
+                    JSON.stringify(messageId)
+                );
+            }
+
+            const result =
+                await sourceMessage.client.pupPage.evaluate(
+                    async (msgId) => {
+                        const collections =
+                            window.require('WAWebCollections');
+
+                        const msg =
+                            collections.Msg.get(msgId) ||
+                            (
+                                await collections.Msg.getMessagesById(
+                                    [msgId]
+                                )
+                            )?.messages?.[0];
+
+                        if (!msg?.mediaData) {
+                            return null;
+                        }
+
+                        if (
+                            msg.mediaData.mediaStage !== 'RESOLVED'
+                        ) {
+                            await msg.downloadMedia({
+                                downloadEvenIfExpensive: true,
+                                rmrReason: 1
+                            });
+                        }
+
+                        if (
+                            !msg.directPath ||
+                            !msg.mediaKey ||
+                            !msg.encFilehash
+                        ) {
+                            throw new Error(
+                                'Data enkripsi atau directPath media tidak lengkap.'
+                            );
+                        }
+
+                        const manager =
+                            window.require('WAWebDownloadManager')
+                                .downloadManager;
+
+                        const mockQpl = {
+                            addAnnotations() { return this; },
+                            end() {},
+                            start() { return this; },
+                            addPoint() { return this; }
+                        };
+
+                        const decrypted =
+                            await manager.downloadAndMaybeDecrypt({
+                                directPath: msg.directPath,
+                                encFilehash: msg.encFilehash,
+                                filehash: msg.filehash,
+                                mediaKey: msg.mediaKey,
+                                mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                                mimetype: msg.mimetype,
+                                type: msg.type,
+                                signal: undefined,
+                                mediaObject: msg,
+                                qpl: mockQpl
+                            });
+
+                        return {
+                            data: decrypted.toString('base64'),
+                            mimetype: msg.mimetype
+                        };
+                    },
+                    serializedId
+                );
+
+            if (!result?.data) {
+                throw new Error(
+                    'Metode standar dan fallback gagal mengambil media.'
+                );
+            }
+
+            media = result;
         }
 
         if (!media?.data) {
-            await message.reply(
-                'Data media kosong. Coba kirim ulang fotonya jir.'
-            );
-            return;
+            throw new Error('Data media kosong.');
         }
 
         if (!media.mimetype?.startsWith('image/')) {
@@ -75,8 +164,10 @@ async function handleSticker(message, args = []) {
 
         const inputBuffer = Buffer.from(media.data, 'base64');
 
-        // -f mempertahankan seluruh gambar tanpa crop.
-        // Mode normal juga memakai contain agar gambar tidak terpotong.
+        if (!inputBuffer.length) {
+            throw new Error('Buffer gambar kosong.');
+        }
+
         const resizeOptions = {
             width: 512,
             height: 512,
@@ -99,7 +190,7 @@ async function handleSticker(message, args = []) {
             })
             .toBuffer();
 
-        // Kompres lagi jika ukuran stiker melebihi 1 MB.
+        // Kompres ulang jika ukuran melebihi 1 MB.
         if (outputBuffer.length > 1024 * 1024) {
             outputBuffer = await sharp(inputBuffer)
                 .rotate()
@@ -126,7 +217,9 @@ async function handleSticker(message, args = []) {
             sticker,
             {
                 sendMediaAsSticker: true,
-                stickerName: fullMode ? 'LRV BOT FULL' : 'LRV BOT',
+                stickerName: fullMode
+                    ? 'LRV BOT FULL'
+                    : 'LRV BOT',
                 stickerAuthor: 'Lrv Squad',
                 stickerCategories: ['🤖']
             }
