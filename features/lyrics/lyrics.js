@@ -132,7 +132,8 @@ async function cariLirik(judulYouTube) {
     // Kalau cuma ada versi bertimestamp, buang timestamp-nya
     if (!lirik && pilih.syncedLyrics) {
         lirik = pilih.syncedLyrics
-            .replace(/^\[[^\]]*\]\s*$/gm, '')
+            .replace(/^\[(?:\d{2}:)?\d{2}:\d{2}(?:[.:]\d+)?\]\s*/gm, '')
+            .replace(/^\[[a-z]{2}:[^\]]*\]\s*$/gim, '')
             .replace(/\n{3,}/g, '\n\n')
             .trim();
     }
