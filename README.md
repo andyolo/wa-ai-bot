@@ -28,7 +28,7 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
 - WhatsApp account
 - API keys for features that require them
 
-## 🚀 Installation
+##  Installation
 
 1. Clone this repository:
 
