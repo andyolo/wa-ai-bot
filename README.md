@@ -4,13 +4,13 @@
 
 LRV BOT is a WhatsApp automation project designed to provide useful tools, entertainment, and AI-powered assistance in one place.
 
-## ✨ Features
+## 🗿 Features
 
 - 🎮 **Games:** Number guessing, Rock Paper Scissors, and more.
 - 🎵 **YouTube:** Search and play audio directly through WhatsApp.
 - 📥 **Media Downloader:** TikTok, Instagram, Pinterest, and other supported platforms.
 - 🖼️ **Sticker Maker:** Convert images into WhatsApp stickers.
-- 🤖 **AI Assistant:** AI-powered responses using Groq.
+- 🎶 **AI Assistant:** AI-powered responses using Groq.
 - 📌 **Utilities:** Date information, ping, and other useful commands.
 
 ## 🛠️ Tech Stack
@@ -64,7 +64,7 @@ This project is intended for educational and personal use. Use responsibly and c
 
 **LRV Squad**
 
-*Gen 1 LRV BOT · 2026*
+*Gen 1 LRV BOT · 2023-2026*
 
 ---
 
