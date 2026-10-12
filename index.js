@@ -664,8 +664,7 @@ try {
 
         if (lirik && lirik.lirik) {
 
-            await client.sendMessage(
-                targetChatId,
+            await message.reply(
                 '📝 ' + (lirik.judul || selected.title) + '\n' +
                 '👤 ' + (lirik.artist || selected.channel) +
                 (lirik.album ? '\n💿 ' + lirik.album : '') +
@@ -677,11 +676,9 @@ try {
                 'PLAY LIRIK TERKIRIM:',
                 lirik.artist, '-', lirik.judul
             );
-
         } else {
 
-            await client.sendMessage(
-                targetChatId,
+            await message.reply(
                 '📝 Lirik tidak ditemukan di database.'
             );
 
@@ -694,6 +691,17 @@ try {
             'PLAY LIRIK ERROR:',
             lirikError && lirikError.message
         );
+
+        try {
+            await message.reply(
+                'Audio berhasil dikirim, tetapi lirik gagal dicari atau dikirim.'
+            );
+        } catch (replyError) {
+            console.error(
+                'PLAY LIRIK ERROR NOTIFICATION:',
+                replyError && replyError.message
+            );
+        }
     }
 
     setTimeout(() => {
@@ -802,7 +810,8 @@ switch (command) {
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
-┃ /s
+┃ /s [foto/video]
+┃ /s -f [foto utuh]
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
 ┃ /owner / Masih tahap pengembangan
