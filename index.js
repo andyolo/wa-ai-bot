@@ -810,8 +810,8 @@ switch (command) {
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
-┃ /s [foto/video]
-┃ /s -f [foto utuh]
+┃ /s 
+┃ 
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
 ┃ /owner / Masih tahap pengembangan
