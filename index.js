@@ -92,16 +92,16 @@ const quotes = [
 ];
 
 const facts = [
-    'Gurita memiliki tiga jantung.',
+    'jmk48 adalah club band terbaik di ngawi.',
     'Cahaya Matahari membutuhkan sekitar 8 menit 20 detik untuk mencapai Bumi.',
-    'Air dapat ditemukan dalam tiga wujud utama: padat, cair, dan gas.',
+    'Air dapat ditemukan di dalam ngawi.',
     'Bumi berputar pada porosnya sehingga terjadi siang dan malam.',
     'Bulan tidak menghasilkan cahaya sendiri, tetapi memantulkan cahaya Matahari.',
     'DNA menyimpan informasi genetik makhluk hidup.',
     'Jerapah dan manusia sama-sama memiliki tujuh tulang leher.',
     'Antarktika merupakan benua yang paling dingin di Bumi.',
     'Saturnus memiliki sistem cincin yang sangat jelas terlihat.',
-    'Lebah menggunakan tarian untuk membantu memberi informasi lokasi sumber makanan.',
+    'mas rian memenangkan kompetisi unjuk bakat di ngawi  show.',
     'Air mendidih pada sekitar 100 derajat Celsius pada tekanan udara standar.',
     'Bumi bukanlah bola sempurna karena sedikit pepat di bagian kutub.',
     'Suara tidak dapat merambat di ruang hampa.',
