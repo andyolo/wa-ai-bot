@@ -1,5 +1,79 @@
 const { MessageMedia } = require('whatsapp-web.js');
 const sharp = require('sharp');
+const ffmpegPath = require('ffmpeg-static');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { promisify } = require('util');
+const { execFile } = require('child_process');
+
+const execFileAsync = promisify(execFile);
+const MAX_STICKER_BYTES = 1024 * 1024;
+const ANIMATED_STICKER_DURATION_SECONDS = 6;
+
+async function createAnimatedSticker(inputBuffer) {
+    if (!ffmpegPath) {
+        throw new Error('ffmpeg-static tidak tersedia.');
+    }
+
+    const tempDir = await fs.promises.mkdtemp(
+        path.join(os.tmpdir(), 'wa-ai-sticker-')
+    );
+    const inputPath = path.join(tempDir, 'input-video');
+    const outputPath = path.join(tempDir, 'sticker.webp');
+
+    try {
+        await fs.promises.writeFile(inputPath, inputBuffer);
+
+        for (const settings of [
+            { fps: 15, quality: 70 },
+            { fps: 10, quality: 50 },
+            { fps: 8, quality: 35 }
+        ]) {
+            const filter =
+                `fps=${settings.fps},` +
+                'scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos,' +
+                'pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,' +
+                'format=yuva420p';
+
+            await execFileAsync(ffmpegPath, [
+                '-y',
+                '-i', inputPath,
+                '-t', String(ANIMATED_STICKER_DURATION_SECONDS),
+                '-an',
+                '-vf', filter,
+                '-c:v', 'libwebp_anim',
+                '-lossless', '0',
+                '-q:v', String(settings.quality),
+                '-preset', 'default',
+                '-loop', '0',
+                '-vsync', '0',
+                outputPath
+            ], {
+                windowsHide: true,
+                maxBuffer: 10 * 1024 * 1024
+            });
+
+            const outputBuffer =
+                await fs.promises.readFile(outputPath);
+
+            if (outputBuffer.length <= MAX_STICKER_BYTES) {
+                return outputBuffer;
+            }
+
+            await fs.promises.unlink(outputPath);
+        }
+
+        throw new Error(
+            'Ukuran stiker animasi melebihi 1 MB setelah dikompres.'
+        );
+    } finally {
+        await fs.promises.rm(tempDir, {
+            recursive: true,
+            force: true
+        });
+    }
+}
 
 async function handleSticker(message, args = []) {
     const fullMode = args.some(
@@ -27,7 +101,8 @@ async function handleSticker(message, args = []) {
 
         if (!sourceMessage.hasMedia) {
             await message.reply(
-                'Kirim foto bersama /s atau balas foto dengan /s jir.'
+                'Kirim foto/video bersama /s atau balas foto/video dengan /s.\n' +
+                'Pakai /s -f untuk stiker foto tanpa dipotong.'
             );
             return;
         }
@@ -155,61 +230,77 @@ async function handleSticker(message, args = []) {
             throw new Error('Data media kosong.');
         }
 
-        if (!media.mimetype?.startsWith('image/')) {
+        const inputBuffer = Buffer.from(media.data, 'base64');
+
+        if (!inputBuffer.length) {
+            throw new Error('Buffer media kosong.');
+        }
+
+        let outputBuffer;
+        let outputFilename;
+
+        if (media.mimetype?.startsWith('video/')) {
+            outputBuffer = await createAnimatedSticker(inputBuffer);
+            outputFilename = 'sticker-animated.webp';
+        } else if (media.mimetype?.startsWith('image/')) {
+            outputBuffer = await sharp(inputBuffer)
+                .rotate()
+                .resize({
+                    width: 512,
+                    height: 512,
+                    fit: fullMode ? 'contain' : 'cover',
+                    position: 'centre',
+                    background: {
+                        r: 0,
+                        g: 0,
+                        b: 0,
+                        alpha: 0
+                    }
+                })
+                .webp({
+                    quality: 80,
+                    effort: 5
+                })
+                .toBuffer();
+
+            if (outputBuffer.length > MAX_STICKER_BYTES) {
+                outputBuffer = await sharp(inputBuffer)
+                    .rotate()
+                    .resize({
+                        width: 512,
+                        height: 512,
+                        fit: fullMode ? 'contain' : 'cover',
+                        position: 'centre',
+                        background: {
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            alpha: 0
+                        }
+                    })
+                    .webp({
+                        quality: 55,
+                        effort: 6
+                    })
+                    .toBuffer();
+            }
+
+            outputFilename = 'sticker.webp';
+        } else {
             await message.reply(
-                'Fitur ini baru mendukung gambar, video belum didukung jir.'
+                'Format ini belum didukung. Kirim gambar atau video.'
             );
             return;
         }
 
-        const inputBuffer = Buffer.from(media.data, 'base64');
-
-        if (!inputBuffer.length) {
-            throw new Error('Buffer gambar kosong.');
-        }
-
-        const resizeOptions = {
-            width: 512,
-            height: 512,
-            fit: 'contain',
-            position: 'centre',
-            background: {
-                r: 0,
-                g: 0,
-                b: 0,
-                alpha: 0
-            }
-        };
-
-        let outputBuffer = await sharp(inputBuffer)
-            .rotate()
-            .resize(resizeOptions)
-            .webp({
-                quality: fullMode ? 90 : 80,
-                effort: 5
-            })
-            .toBuffer();
-
-        // Kompres ulang jika ukuran melebihi 1 MB.
-        if (outputBuffer.length > 1024 * 1024) {
-            outputBuffer = await sharp(inputBuffer)
-                .rotate()
-                .resize(resizeOptions)
-                .webp({
-                    quality: 55,
-                    effort: 6
-                })
-                .toBuffer();
-        }
-
-        if (outputBuffer.length > 1024 * 1024) {
+        if (outputBuffer.length > MAX_STICKER_BYTES) {
             throw new Error('Ukuran stiker melebihi 1 MB.');
         }
 
         const sticker = new MessageMedia(
             'image/webp',
             outputBuffer.toString('base64'),
-            'sticker.webp'
+            outputFilename
         );
 
         await message.client.sendMessage(
@@ -227,6 +318,7 @@ async function handleSticker(message, args = []) {
 
         console.log('[STICKER SUCCESS]', {
             mode: fullMode ? 'FULL' : 'NORMAL',
+            type: media.mimetype.startsWith('video/') ? 'ANIMATED' : 'IMAGE',
             inputBytes: inputBuffer.length,
             outputBytes: outputBuffer.length
         });
@@ -237,9 +329,16 @@ async function handleSticker(message, args = []) {
             error?.stack || error
         );
 
-        await message.reply(
-            'Gagal memproses stiker jir. Cek log bot.'
-        ).catch(() => {});
+        try {
+            await message.reply(
+                'Gagal memproses stiker jir. Cek log bot.'
+            );
+        } catch (replyError) {
+            console.error(
+                '[STICKER ERROR NOTIFICATION]',
+                replyError?.stack || replyError
+            );
+        }
     }
 }
 
