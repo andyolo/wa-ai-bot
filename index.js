@@ -774,8 +774,8 @@ switch (command) {
     case 'help':
     case 'bantuan': {
 
-        const menuText =
-            `╭━━━「 Gen 1 LRV BOT 」━━━╮
+       const menuText =
+`╭━━━「 Gen 1 LRV BOT 」━━━╮
 ┃
 ┃ GAME
 ┃ /tebak
@@ -789,7 +789,7 @@ switch (command) {
 ┃ INFORMASI
 ┃ /tanggal
 ┃ /natal
-┃ /ping 
+┃ /ping
 ┃
 ┃ FITUR PRIORITAS / UPDATE
 ┃ /play
@@ -799,8 +799,6 @@ switch (command) {
 ┃ /pixiv
 ┃ /hd
 ┃ /nsfw
-┃ 
-┃
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
@@ -814,7 +812,10 @@ switch (command) {
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯
 
-> © 2026 Lrv Squad 3th`;
+> © 2026 Lrv Squad 3th
+> GitHub: https://github.com/andyolo/wa-ai-bot`;
+
+
 
         await botReply(message, menuText);
         return;
