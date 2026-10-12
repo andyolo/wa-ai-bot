@@ -798,13 +798,13 @@ switch (command) {
 ┃ /pin
 ┃ /pixiv
 ┃ /hd
-┃ /s
 ┃ /nsfw
+┃ 
 ┃
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
-┃ 
+┃ /s
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
 ┃ /owner / Masih tahap pengembangan
