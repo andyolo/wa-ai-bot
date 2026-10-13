@@ -55,8 +55,10 @@ const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: './.wwebjs_auth'
     }),
+    authTimeoutMs: 120000,
     puppeteer: {
         headless: true,
+        protocolTimeout: 120000,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox'
