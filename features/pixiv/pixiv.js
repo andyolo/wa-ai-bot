@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 
@@ -92,7 +93,7 @@ const RECOVERY_MS = parseInt(process.env.PIXIV_RECOVERY_MS || '6000', 10) || 600
 // supaya tag tak bersalah seperti ホブルスカート (rok) dan
 // スカイライダー (Kamen Rider) tidak ikut kena.
 //
-// Bisa diganti lewat PIXIV_BLOCK_TAGS di .env (pisah koma).
+// Tag ini selalu disaring; PIXIV_BLOCK_TAGS menambahkan tag kustom.
 const DEFAULT_BLOCK_TAGS = [
     'スカトロ',   // scat
     'スカ',       // scat
@@ -115,17 +116,18 @@ const DEFAULT_BLOCK_TAGS = [
     '妊婦',       // ibu hamil
     '孕',         // hamil
     '孕肚',       // perut hamil
-    '出産',       // melahirkan
-    'NovelAI'     // karya NovelAI
+    '出産'        // melahirkan
 ];
 
-const BLOCK_TAGS = (
-    process.env.PIXIV_BLOCK_TAGS
+const BLOCK_TAGS = [
+    ...DEFAULT_BLOCK_TAGS,
+    ...(process.env.PIXIV_BLOCK_TAGS
         ? String(process.env.PIXIV_BLOCK_TAGS).split(',')
-        : DEFAULT_BLOCK_TAGS
-)
+        : [])
+]
     .map(t => String(t).trim().toLowerCase())
-    .filter(Boolean);
+    // AI is a source/style, not an unsafe-content rating.
+    .filter(tag => tag && tag !== 'novelai' && tag !== 'aiイラスト');
 
 // Lokasi .env, dihitung dari posisi file ini
 // (features/pixiv/pixiv.js -> naik 2 tingkat)
@@ -398,7 +400,10 @@ function kenaBlokir(tags) {
 
     for (const t of (tags || [])) {
 
-        const bersih = String(t).trim().toLowerCase();
+        const nilaiTag = t && typeof t === 'object'
+            ? (t.tag || t.name || '')
+            : t;
+        const bersih = String(nilaiTag).trim().toLowerCase();
 
         if (BLOCK_TAGS.includes(bersih)) {
             return bersih;
@@ -406,6 +411,42 @@ function kenaBlokir(tags) {
     }
 
     return null;
+}
+
+function artworkTags(detail) {
+    return ((detail.tags && detail.tags.tags) || [])
+        .map(tag => typeof tag === 'string' ? tag : tag.tag);
+}
+
+function artworkAllowed(detail) {
+    if (!detail || ![0, 1, 2].includes(detail.illustType)) {
+        return false;
+    }
+
+    if (detail.illustType === 2 && !SEND_VIDEO) {
+        return false;
+    }
+
+    if (detail.xRestrict !== 0 && detail.xRestrict !== 1) {
+        return false;
+    }
+
+    if (!allowR18 && detail.xRestrict !== 0) {
+        return false;
+    }
+
+    return !kenaBlokir(artworkTags(detail));
+}
+
+function shuffle(items) {
+    const shuffled = items.slice();
+
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    return shuffled;
 }
 
 function extFromUrl(url) {
@@ -561,9 +602,16 @@ async function downloadImage(url, outputPath) {
         await response.arrayBuffer()
     );
 
+    if (!buffer.length) {
+        throw new Error('Pixiv mengirim file gambar kosong.');
+    }
+
     fs.writeFileSync(outputPath, buffer);
 
-    return buffer.length;
+    return {
+        size: buffer.length,
+        hash: crypto.createHash('sha256').update(buffer).digest('hex')
+    };
 }
 
 function escapeConcatPath(filePath) {
@@ -827,7 +875,8 @@ async function kabariBerhenti(message, nomor, total) {
 async function handlePixiv(message, input, client) {
 
     let tempDir = null;
-    let downloadedPages = 0;
+    let sentPages = 0;
+    const sentMediaHashes = new Set();
 
     try {
 
@@ -878,11 +927,14 @@ async function handlePixiv(message, input, client) {
             // dan terpilih acak, bot gagal dengan "id undefined".
             // Jadi cek '!item.id' harus SELALU jalan, terlepas
             // dari setting NSFW.
+            const ids = new Set();
             const candidates = results.filter(item => {
 
-                if (!item || !item.id) {
+                if (!item || !item.id || ids.has(String(item.id))) {
                     return false;
                 }
+
+                ids.add(String(item.id));
 
                 if (item.illustType === 2 && !SEND_VIDEO) {
                     return false;
@@ -895,20 +947,13 @@ async function handlePixiv(message, input, client) {
                     return false;
                 }
 
-                // Tag jorok (scat dll) SELALU dibuang,
-                // karena sering tidak ditandai R-18G.
-                if (kenaBlokir(item.tags)) {
+                if (item.xRestrict !== 0 && item.xRestrict !== 1) {
                     return false;
                 }
 
-                // Karya AI SELALU dibuang.
-                //
-                // Pixiv menandainya dengan aiType = 2.
-                // Sudah diuji: tag "AIイラスト" -> 59 dari 60
-                // item punya aiType 2, sedangkan aiType 1 =
-                // karya buatan manusia. Jadi tidak perlu
-                // menebak-nebak dari tag.
-                if (item.aiType === 2) {
+                // Tag jorok (scat dll) SELALU dibuang,
+                // karena sering tidak ditandai R-18G.
+                if (kenaBlokir(item.tags)) {
                     return false;
                 }
 
@@ -938,14 +983,6 @@ async function handlePixiv(message, input, client) {
                 return;
             }
 
-            // ==================================================
-            // UNDIAN R-18
-            //
-            // Kalau NSFW aktif, hasilnya TIDAK selalu R-18.
-            // Kandidat dipisah dulu, lalu diundi sesuai
-            // persentase (default 50%).
-            // ==================================================
-
             const kandidatAman = candidates.filter(
                 x => x.xRestrict === 0
             );
@@ -954,37 +991,79 @@ async function handlePixiv(message, input, client) {
                 x => x.xRestrict !== 0
             );
 
-            let pool;
+            let poolUtama;
+            let poolCadangan = [];
 
             if (allowR18 && kandidatR18.length && kandidatAman.length) {
 
                 const pilihR18 = Math.random() * 100 < R18_CHANCE;
 
-                pool = pilihR18 ? kandidatR18 : kandidatAman;
+                poolUtama = shuffle(pilihR18 ? kandidatR18 : kandidatAman);
+                poolCadangan = shuffle(pilihR18 ? kandidatAman : kandidatR18);
 
                 console.log(
                     `PIXIV UNDIAN: peluang R-18 ${R18_CHANCE}% ->`,
                     pilihR18 ? 'R-18' : 'AMAN',
-                    `(aman ${kandidatAman.length}, R-18 ${kandidatR18.length})`
+                    `(aman ${kandidatAman.length}, R-18 ${kandidatR18.length}); ` +
+                    'kandidat cadangan dicoba bila perlu'
                 );
 
             } else {
 
-                pool = kandidatAman.length
-                    ? kandidatAman
-                    : (kandidatR18.length ? kandidatR18 : candidates);
+                poolUtama = shuffle(
+                    kandidatAman.length ? kandidatAman : kandidatR18
+                );
             }
 
-            pool = pool.slice(0, MAX_CANDIDATES);
+            const pool = poolUtama
+                .concat(poolCadangan)
+                .slice(0, MAX_CANDIDATES);
+            let lastCandidateError = null;
 
-            const pick =
-                pool[Math.floor(Math.random() * pool.length)];
+            for (const candidate of pool) {
+                try {
+                    const candidateIllust = await getIllust(candidate.id);
 
-            console.log('PIXIV DIPILIH:', pick.id, pick.title);
+                    if (!artworkAllowed(candidateIllust.detail)) {
+                        console.warn(
+                            '[PIXIV] Kandidat detail tidak lolos filter:',
+                            candidate.id
+                        );
+                        continue;
+                    }
 
-            illustId = pick.id;
+                    illustId = candidate.id;
+                    illust = candidateIllust;
+                    console.log(
+                        'PIXIV DIPILIH:',
+                        candidate.id,
+                        candidate.title
+                    );
+                    break;
+                } catch (candidateError) {
+                    lastCandidateError = candidateError;
+                    console.error(
+                        '[PIXIV] Kandidat gagal diambil, lanjut kandidat lain:',
+                        candidate.id,
+                        candidateError.message
+                    );
+                }
+            }
 
-            illust = await getIllust(pick.id);
+            if (!illust) {
+                if (lastCandidateError) {
+                    throw new Error(
+                        `Semua ${pool.length} kandidat Pixiv gagal diambil.`,
+                        { cause: lastCandidateError }
+                    );
+                }
+
+                await message.reply(
+                    '❌ Hasil ditemukan, tetapi semuanya terblokir oleh ' +
+                    'filter keamanan atau tidak bisa diproses.'
+                );
+                return;
+            }
         }
 
         const detail = illust.detail;
@@ -993,17 +1072,6 @@ async function handlePixiv(message, input, client) {
         // ==================================================
         // VALIDASI
         // ==================================================
-
-        if (detail.illustType === 2) {
-
-            if (!SEND_VIDEO) {
-                await message.reply(
-                    '❌ Video Pixiv sedang dinonaktifkan. ' +
-                    'Atur PIXIV_SEND_VIDEO=true di .env.'
-                );
-                return;
-            }
-        }
 
         if (detail.xRestrict === 2) {
 
@@ -1015,11 +1083,7 @@ async function handlePixiv(message, input, client) {
             return;
         }
 
-        const tagDiblokir = kenaBlokir(
-            ((detail.tags && detail.tags.tags) || [])
-                .map(t => t.tag)
-        );
-
+        const tagDiblokir = kenaBlokir(artworkTags(detail));
         if (tagDiblokir) {
 
             await message.reply(
@@ -1030,13 +1094,18 @@ async function handlePixiv(message, input, client) {
             return;
         }
 
-        if (!allowR18 && detail.xRestrict !== 0) {
-
+        if (!allowR18 && detail.xRestrict === 1) {
             await message.reply(
                 '🔞 Karya ini R-18.\n' +
                 'Ketik /nsfw on kalau memang mau ditampilkan.'
             );
+            return;
+        }
 
+        if (!artworkAllowed(detail)) {
+            await message.reply(
+                '🚫 Karya ini tidak lolos filter keamanan Pixiv.'
+            );
             return;
         }
 
@@ -1047,8 +1116,6 @@ async function handlePixiv(message, input, client) {
         tempDir = await fs.promises.mkdtemp(
             path.join(os.tmpdir(), 'wa-bot-pixiv-')
         );
-
-        const timestamp = Date.now();
 
         const limit = MAX_PAGES;
         const selected = pages.slice(0, limit);
@@ -1103,145 +1170,165 @@ async function handlePixiv(message, input, client) {
         // DOWNLOAD + KIRIM SEMUA HALAMAN
         // ==================================================
 
-        for (let i = 0; i < selected.length; i++) {
+        let koneksiGagal = false;
+        let skippedDuplicates = 0;
 
+        for (let i = 0; i < selected.length; i++) {
             const page = selected[i];
 
             const firstUrl = page[QUALITY] || page.original;
-
-            let imagePath = path.join(
-                tempDir,
-                `pixiv_${timestamp}_p${i}` +
-                extFromUrl(firstUrl)
-            );
+            const variants = [...new Set([
+                firstUrl,
+                page.regular,
+                page.small,
+                page.thumb
+            ].filter(Boolean))];
+            let pageSent = false;
+            let duplicateMedia = false;
+            let lastSendError = null;
+            const attemptedHashes = new Set();
 
             try {
 
-                let size = await downloadImage(
-                    firstUrl,
-                    imagePath
-                );
-
-                console.log(
-                    `PIXIV HALAMAN ${i + 1}/${selected.length} READY:`,
-                    mb(size),
-                    `(${QUALITY})`
-                );
-
-                // ==========================================
-                // PENGAMAN: kalau kegedean, turun ke regular
-                // ==========================================
-
-                if (
-                    size > MAX_SEND_BYTES &&
-                    page.regular &&
-                    firstUrl !== page.regular
-                ) {
-
-                    console.log(
-                        `PIXIV HALAMAN ${i + 1} KELEBIHAN ` +
-                        `(${mb(size)} > ${SAFE_MAX_SEND_MB} MB), ` +
-                        'turun ke regular...'
-                    );
-
-                    const altPath = path.join(
+                for (let variantIndex = 0; variantIndex < variants.length; variantIndex++) {
+                    const variantUrl = variants[variantIndex];
+                    const imagePath = path.join(
                         tempDir,
-                        `pixiv_${timestamp}_p${i}_alt` +
-                        extFromUrl(page.regular)
+                        `pixiv_p${i}_v${variantIndex}` +
+                        extFromUrl(variantUrl)
                     );
 
                     try {
-
-                        const altSize = await downloadImage(
-                            page.regular,
-                            altPath
+                        const { size, hash } = await downloadImage(
+                            variantUrl,
+                            imagePath
                         );
 
-                        safeUnlink(imagePath);
+                        if (sentMediaHashes.has(hash)) {
+                            duplicateMedia = true;
+                            safeUnlink(imagePath);
+                            console.log(
+                                `PIXIV HALAMAN ${i + 1} DUPLIKAT, dilewati`
+                            );
+                            break;
+                        }
 
-                        imagePath = altPath;
-                        size = altSize;
+                        if (attemptedHashes.has(hash)) {
+                            safeUnlink(imagePath);
+                            continue;
+                        }
+                        attemptedHashes.add(hash);
+
+                        if (size > MAX_SEND_BYTES && variantIndex < variants.length - 1) {
+                            console.warn(
+                                `PIXIV HALAMAN ${i + 1} ${mb(size)}; ` +
+                                'mencoba varian gambar lebih kecil'
+                            );
+                            safeUnlink(imagePath);
+                            continue;
+                        }
 
                         console.log(
-                            `PIXIV HALAMAN ${i + 1} TURUN KE REGULAR:`,
-                            mb(size)
+                            `PIXIV HALAMAN ${i + 1}/${selected.length} READY:`,
+                            mb(size),
+                            `(varian ${variantIndex + 1}/${variants.length})`
                         );
 
-                    } catch (altError) {
+                        const pageCaption =
+                            selected.length > 1
+                                ? `${i + 1}/${selected.length}\n${caption}`
+                                : caption;
+                        const hasilKirim = await kirimDenganPulih(
+                            message,
+                            imagePath,
+                            pageCaption,
+                            i + 1
+                        );
+
+                        if (hasilKirim.ok) {
+                            sentMediaHashes.add(hash);
+                            sentPages++;
+                            pageSent = true;
+                            console.log(
+                                `PIXIV HALAMAN ${i + 1} SENT` +
+                                (hasilKirim.pulih ? ' (setelah pulih)' : '')
+                            );
+                            break;
+                        }
+
+                        lastSendError = hasilKirim.error;
+                        safeUnlink(imagePath);
+
+                        if (hasilKirim.fatal) {
+                            koneksiGagal = true;
+                            console.error(
+                                `PIXIV DIHENTIKAN di halaman ${i + 1}` +
+                                ` dari ${selected.length}: koneksi putus.`
+                            );
+                            await kabariBerhenti(
+                                message,
+                                i + 1,
+                                selected.length
+                            );
+                            break;
+                        }
 
                         console.error(
-                            `PIXIV HALAMAN ${i + 1} GAGAL TURUN KUALITAS:`,
-                            altError && altError.message
+                            `PIXIV HALAMAN ${i + 1} GAGAL KIRIM; ` +
+                            'mencoba varian berikutnya:',
+                            lastSendError && lastSendError.message
                         );
+                    } catch (variantError) {
+                        lastSendError = variantError;
+                        safeUnlink(imagePath);
+                        console.error(
+                            `PIXIV HALAMAN ${i + 1} VARIAN ${variantIndex + 1} GAGAL:`,
+                            variantError.message
+                        );
+                    }
 
-                        safeUnlink(altPath);
+                    if (koneksiGagal) {
+                        break;
                     }
                 }
-
-                downloadedPages++;
-
-                const pageCaption =
-                    selected.length > 1
-                        ? `${i + 1}/${selected.length}\n${caption}`
-                        : caption;
-
-                const hasilKirim = await kirimDenganPulih(
-                    message,
-                    imagePath,
-                    pageCaption,
-                    i + 1
-                );
-
-                if (hasilKirim.ok) {
-
-                    console.log(
-                        `PIXIV HALAMAN ${i + 1} SENT` +
-                        (hasilKirim.pulih ? ' (setelah pulih)' : '')
-                    );
-
-                } else if (hasilKirim.fatal) {
-
-                    // Koneksi putus dan tidak pulih. Percuma
-                    // lanjut - halaman berikutnya pasti gagal
-                    // juga, dan cuma bikin antrean numpuk.
-                    console.error(
-                        `PIXIV DIHENTIKAN di halaman ${i + 1}` +
-                        ` dari ${selected.length}: koneksi putus.`
-                    );
-
-                    await kabariBerhenti(message, i + 1, selected.length);
-
-                    break;
-
-                } else {
-
-                    console.error(
-                        `PIXIV HALAMAN ${i + 1} GAGAL KIRIM:`,
-                        hasilKirim.error && hasilKirim.error.message
-                    );
-                }
-
+            }
+            catch (pageError) {
+                lastSendError = pageError;
+                console.error(`PIXIV HALAMAN ${i + 1} GAGAL:`, pageError);
             }
 
-            catch (pageError) {
-
+            if (!pageSent && !duplicateMedia && lastSendError) {
                 console.error(
-                    `PIXIV HALAMAN ${i + 1} GAGAL:`,
-                    '[name]', pageError && pageError.name,
-                    '[message]', pageError && pageError.message,
-                    '[stack]', pageError && pageError.stack
+                    `PIXIV HALAMAN ${i + 1} TIDAK TERKIRIM:`,
+                    lastSendError.message
                 );
+            }
+            if (duplicateMedia) {
+                skippedDuplicates++;
             }
 
             // jeda biar WhatsApp Web nggak kebanjiran
-            if (i < selected.length - 1) {
+            if (!koneksiGagal && i < selected.length - 1) {
                 await delay(DELAY_MS);
             }
 
+            if (koneksiGagal) {
+                break;
+            }
         }
 
-        if (!downloadedPages) {
-            throw new Error('Semua halaman gagal diunduh');
+        if (!sentPages) {
+            throw new Error('Tidak ada halaman Pixiv yang berhasil dikirim.');
+        }
+
+        const failedPages =
+            selected.length - sentPages - skippedDuplicates;
+        if (failedPages > 0 && !koneksiGagal) {
+            await message.reply(
+                `⚠️ Berhasil mengirim ${sentPages} dari ` +
+                `${selected.length} halaman Pixiv. ` +
+                `${failedPages} halaman gagal setelah mencoba varian lain.`
+            );
         }
 
     }
