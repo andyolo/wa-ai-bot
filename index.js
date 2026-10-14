@@ -836,10 +836,10 @@ switch (command) {
     case 'update': {
         await botReply(
             message,
-            `📢 RENCANA UPDATE LRV BOT
+            `UPDATE LRV BOT
 
-🤖 LRV BOT Gen 2 akan update pada 1 Januari 2027.
-🌐 Pada Januari 2027, LRV akan memiliki website, server, dan domain web.`
+ LRV BOT Gen 2 akan rilis pada 1 Januari 2027.
+ Saat Januari 2027, LRV akan memiliki website, server, dan domain web.`
         );
         return;
     }
