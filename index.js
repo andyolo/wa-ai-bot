@@ -813,6 +813,7 @@ switch (command) {
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
 ┃ /s 
+┃ /update
 ┃ 
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
@@ -829,6 +830,17 @@ switch (command) {
 
 
         await botReply(message, menuText);
+        return;
+    }
+
+    case 'update': {
+        await botReply(
+            message,
+            `📢 RENCANA UPDATE LRV BOT
+
+🤖 LRV BOT Gen 2 akan update pada 1 Januari 2027.
+🌐 Pada Januari 2027, LRV akan memiliki website, server, dan domain web.`
+        );
         return;
     }
 
