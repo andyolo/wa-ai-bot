@@ -1,8 +1,13 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 
 const { MessageMedia } = require('whatsapp-web.js');
+const unzipper = require('unzipper');
+const ffmpegPath = require('ffmpeg-static');
+const execFileAsync = promisify(execFile);
 
 
 // ==================================================
@@ -24,7 +29,7 @@ let allowR18 =
 
 // Maksimal halaman yang dikirim per artwork
 const MAX_PAGES =
-    parseInt(process.env.PIXIV_MAX_PAGES || '10', 10);
+    Math.max(1, parseInt(process.env.PIXIV_MAX_PAGES || '10', 10) || 10);
 
 // Kualitas gambar: regular (maks 1200px) | original
 // WhatsApp toh mengompres ke ~1600px, jadi 'regular'
@@ -39,9 +44,26 @@ const QUALITY =
 // PIXIV_QUALITY=original, karena 'regular' selalu kecil.
 const MAX_SEND_MB =
     parseFloat(process.env.PIXIV_MAX_SEND_MB || '5');
+const SAFE_MAX_SEND_MB =
+    Number.isFinite(MAX_SEND_MB) && MAX_SEND_MB > 0
+        ? MAX_SEND_MB
+        : 5;
 
 const MAX_SEND_BYTES =
-    (isNaN(MAX_SEND_MB) ? 5 : MAX_SEND_MB) * 1024 * 1024;
+    SAFE_MAX_SEND_MB * 1024 * 1024;
+
+const SEND_VIDEO =
+    /^(1|true|yes|on)$/i.test(
+        String(process.env.PIXIV_SEND_VIDEO || 'false').trim()
+    );
+
+const parsedVideoMaxMb =
+    parseFloat(process.env.PIXIV_MAX_VIDEO_MB || '16');
+const MAX_VIDEO_MB =
+    Number.isFinite(parsedVideoMaxMb) && parsedVideoMaxMb > 0
+        ? parsedVideoMaxMb
+        : 16;
+const MAX_VIDEO_BYTES = MAX_VIDEO_MB * 1024 * 1024;
 
 // Batas kandidat hasil search yang diacak
 const MAX_CANDIDATES = 30;
@@ -513,9 +535,15 @@ async function getIllust(id) {
     return { detail, pages };
 }
 
+async function getUgoiraMeta(id) {
+    return fetchJson(
+        `https://www.pixiv.net/ajax/illust/${id}/ugoira_meta?lang=ja`
+    );
+}
+
 
 // ==================================================
-// DOWNLOAD GAMBAR
+// DOWNLOAD + KONVERSI UGOIRA KE VIDEO
 // ==================================================
 
 async function downloadImage(url, outputPath) {
@@ -536,6 +564,130 @@ async function downloadImage(url, outputPath) {
     fs.writeFileSync(outputPath, buffer);
 
     return buffer.length;
+}
+
+function escapeConcatPath(filePath) {
+    return filePath
+        .replace(/\\/g, '/')
+        .replace(/'/g, "'\\''");
+}
+
+async function downloadUgoiraVideo(illustId, tempDir) {
+    if (!ffmpegPath) {
+        throw new Error('ffmpeg-static tidak tersedia.');
+    }
+
+    const metadata = await getUgoiraMeta(illustId);
+    const sourceUrl = metadata.originalSrc || metadata.src;
+
+    if (!sourceUrl || !Array.isArray(metadata.frames) || !metadata.frames.length) {
+        throw new Error('Metadata ugoira Pixiv tidak lengkap.');
+    }
+
+    const parsedSourceUrl = new URL(sourceUrl);
+    if (
+        parsedSourceUrl.protocol !== 'https:' ||
+        !parsedSourceUrl.hostname.endsWith('.pximg.net')
+    ) {
+        throw new Error('URL video ugoira Pixiv tidak valid.');
+    }
+
+    const response = await fetch(parsedSourceUrl, {
+        headers: buildHeaders(),
+        signal: AbortSignal.timeout(120000)
+    });
+
+    if (!response.ok) {
+        throw new Error(`Download ugoira HTTP ${response.status}`);
+    }
+
+    const zipPath = path.join(tempDir, `pixiv_${illustId}.zip`);
+    const zipBuffer = Buffer.from(await response.arrayBuffer());
+    await fs.promises.writeFile(zipPath, zipBuffer);
+
+    const archive = await unzipper.Open.file(zipPath);
+    const framePaths = [];
+    const concatLines = [];
+
+    for (let i = 0; i < metadata.frames.length; i++) {
+        const frame = metadata.frames[i];
+        const frameName = String((frame && frame.file) || '');
+        const extension = path.extname(frameName).toLowerCase();
+
+        if (
+            !frameName ||
+            path.basename(frameName) !== frameName ||
+            !['.jpg', '.jpeg', '.png'].includes(extension)
+        ) {
+            throw new Error(`Nama frame ugoira tidak valid: ${frameName}`);
+        }
+
+        const entry = archive.files.find(
+            item => item.path === frameName && item.type === 'File'
+        );
+
+        if (!entry) {
+            throw new Error(`Frame ugoira tidak ditemukan: ${frameName}`);
+        }
+
+        const framePath = path.join(
+            tempDir,
+            `frame_${String(i).padStart(6, '0')}${extension}`
+        );
+        await fs.promises.writeFile(framePath, await entry.buffer());
+        framePaths.push(framePath);
+
+        const delayMs = Number(frame.delay);
+        const duration = Number.isFinite(delayMs) && delayMs > 0
+            ? delayMs / 1000
+            : 0.1;
+
+        concatLines.push(
+            `file '${escapeConcatPath(framePath)}'`,
+            `duration ${duration}`
+        );
+    }
+
+    const concatPath = path.join(tempDir, 'frames.txt');
+    const videoPath = path.join(tempDir, `pixiv_${illustId}.mp4`);
+    concatLines.push(`file '${escapeConcatPath(framePaths[framePaths.length - 1])}'`);
+    await fs.promises.writeFile(concatPath, concatLines.join('\n'), 'utf8');
+
+    await execFileAsync(ffmpegPath, [
+        '-y',
+        '-f', 'concat',
+        '-safe', '0',
+        '-i', concatPath,
+        '-vsync', 'vfr',
+        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-movflags', '+faststart',
+        '-an',
+        videoPath
+    ], {
+        windowsHide: true,
+        maxBuffer: 10 * 1024 * 1024
+    });
+
+    const videoStat = await fs.promises.stat(videoPath);
+    if (!videoStat.size) {
+        throw new Error('Video ugoira kosong setelah dikonversi.');
+    }
+    if (videoStat.size > MAX_VIDEO_BYTES) {
+        throw new Error(
+            `Ukuran video ${mb(videoStat.size)} melebihi ` +
+            `PIXIV_MAX_VIDEO_MB (${MAX_VIDEO_MB} MB).`
+        );
+    }
+
+    console.log(
+        '[PIXIV] Ugoira dikonversi:',
+        mb(videoStat.size),
+        `(${framePaths.length} frame)`
+    );
+
+    return videoPath;
 }
 
 
@@ -570,6 +722,19 @@ async function sendImage(message, imagePath, caption) {
     );
 }
 
+async function sendVideo(message, videoPath, caption) {
+    const media = MessageMedia.fromFilePath(videoPath);
+
+    await message.reply(
+        media,
+        undefined,
+        {
+            caption: caption,
+            sendMediaAsDocument: false
+        }
+    );
+}
+
 
 // ==================================================
 // TAHAN BANTING: KONEKSI WHATSAPP WEB PUTUS
@@ -593,11 +758,17 @@ function koneksiPutus(error) {
 //   ok    -> berhasil terkirim
 //   pulih -> berhasil setelah dicoba ulang
 //   fatal -> koneksi putus dan tidak pulih (STOP)
-async function kirimDenganPulih(message, imagePath, pageCaption, nomor) {
+async function kirimDenganPulih(
+    message,
+    mediaPath,
+    pageCaption,
+    nomor,
+    sendMedia = sendImage
+) {
 
     try {
 
-        await sendImage(message, imagePath, pageCaption);
+        await sendMedia(message, mediaPath, pageCaption);
 
         return { ok: true, pulih: false };
 
@@ -616,7 +787,7 @@ async function kirimDenganPulih(message, imagePath, pageCaption, nomor) {
 
         try {
 
-            await sendImage(message, imagePath, pageCaption);
+            await sendMedia(message, mediaPath, pageCaption);
 
             return { ok: true, pulih: true };
 
@@ -655,7 +826,8 @@ async function kabariBerhenti(message, nomor, total) {
 
 async function handlePixiv(message, input, client) {
 
-    const files = [];
+    let tempDir = null;
+    let downloadedPages = 0;
 
     try {
 
@@ -699,7 +871,7 @@ async function handlePixiv(message, input, client) {
 
             const results = await searchPixiv(input);
 
-            // Buang entri kosong, ugoira (animasi), & R-18.
+            // Buang entri kosong, ugoira saat video dinonaktifkan, & R-18.
             //
             // Catatan: Pixiv suka menyelipkan 1 entri KOSONG
             // (tanpa 'id') di hasil search. Kalau entri itu lolos
@@ -712,7 +884,7 @@ async function handlePixiv(message, input, client) {
                     return false;
                 }
 
-                if (item.illustType === 2) {
+                if (item.illustType === 2 && !SEND_VIDEO) {
                     return false;
                 }
 
@@ -824,11 +996,13 @@ async function handlePixiv(message, input, client) {
 
         if (detail.illustType === 2) {
 
-            await message.reply(
-                '❌ Karya ini ugoira (animasi), belum didukung tunggu update ya.'
-            );
-
-            return;
+            if (!SEND_VIDEO) {
+                await message.reply(
+                    '❌ Video Pixiv sedang dinonaktifkan. ' +
+                    'Atur PIXIV_SEND_VIDEO=true di .env.'
+                );
+                return;
+            }
         }
 
         if (detail.xRestrict === 2) {
@@ -866,25 +1040,18 @@ async function handlePixiv(message, input, client) {
             return;
         }
 
-        const limit = Math.max(1, MAX_PAGES);
-
-        const selected = pages.slice(0, limit);
-
         // ==================================================
         // TEMP FOLDER
         // ==================================================
 
-        const tempDir = path.join(
-            os.tmpdir(),
-            'wa-bot-pixiv'
+        tempDir = await fs.promises.mkdtemp(
+            path.join(os.tmpdir(), 'wa-bot-pixiv-')
         );
-
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
-        }
 
         const timestamp = Date.now();
 
+        const limit = MAX_PAGES;
+        const selected = pages.slice(0, limit);
         const potong =
             pages.length > limit
                 ? ` (dikirim ${limit})`
@@ -893,7 +1060,9 @@ async function handlePixiv(message, input, client) {
         await message.reply(
             `🎨 ${detail.illustTitle}\n` +
             `👤 ${detail.userName}\n` +
-            `🖼️ ${detail.pageCount} halaman${potong}\n` +
+            (detail.illustType === 2
+                ? '🎞️ Video ugoira\n'
+                : `🖼️ ${detail.pageCount} halaman${potong}\n`) +
             (allowR18
                 ? `🔞 NSFW: AKTIF (peluang ${R18_CHANCE}%)\n`
                 : '✅ NSFW: OFF\n') +
@@ -904,6 +1073,31 @@ async function handlePixiv(message, input, client) {
             `🎨 ${detail.illustTitle}\n` +
             `👤 ${detail.userName}\n` +
             `🔗 https://www.pixiv.net/artworks/${illustId}`;
+
+        if (detail.illustType === 2) {
+            const videoPath = await downloadUgoiraVideo(
+                illustId,
+                tempDir
+            );
+            const hasilKirim = await kirimDenganPulih(
+                message,
+                videoPath,
+                caption,
+                1,
+                sendVideo
+            );
+
+            if (hasilKirim.fatal) {
+                await kabariBerhenti(message, 1, 1);
+                return;
+            }
+            if (!hasilKirim.ok) {
+                throw hasilKirim.error;
+            }
+
+            console.log('PIXIV UGOIRA SENT');
+            return;
+        }
 
         // ==================================================
         // DOWNLOAD + KIRIM SEMUA HALAMAN
@@ -946,7 +1140,7 @@ async function handlePixiv(message, input, client) {
 
                     console.log(
                         `PIXIV HALAMAN ${i + 1} KELEBIHAN ` +
-                        `(${mb(size)} > ${MAX_SEND_MB} MB), ` +
+                        `(${mb(size)} > ${SAFE_MAX_SEND_MB} MB), ` +
                         'turun ke regular...'
                     );
 
@@ -984,7 +1178,7 @@ async function handlePixiv(message, input, client) {
                     }
                 }
 
-                files.push(imagePath);
+                downloadedPages++;
 
                 const pageCaption =
                     selected.length > 1
@@ -1046,7 +1240,7 @@ async function handlePixiv(message, input, client) {
 
         }
 
-        if (!files.length) {
+        if (!downloadedPages) {
             throw new Error('Semua halaman gagal diunduh');
         }
 
@@ -1057,7 +1251,7 @@ async function handlePixiv(message, input, client) {
         console.error('PIXIV ERROR:', error);
 
         await message.reply(
-            '❌ Gagal mengambil gambar Pixiv.\n' +
+            '❌ Gagal mengambil karya Pixiv.\n' +
             'Cek kata kunci atau lihat log PM2.'
         );
 
@@ -1065,14 +1259,16 @@ async function handlePixiv(message, input, client) {
 
     finally {
 
-        for (const file of files) {
-
-            safeUnlink(file);
-
-            console.log(
-                'PIXIV DELETED:',
-                path.basename(file)
-            );
+        if (tempDir) {
+            try {
+                await fs.promises.rm(tempDir, {
+                    recursive: true,
+                    force: true
+                });
+                console.log('PIXIV TEMP DIHAPUS:', path.basename(tempDir));
+            } catch (cleanupError) {
+                console.error('PIXIV CLEANUP ERROR:', cleanupError);
+            }
         }
     }
 }
