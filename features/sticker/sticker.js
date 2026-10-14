@@ -165,20 +165,20 @@ async function handleSticker(message, args = []) {
                             return null;
                         }
 
-                        if (
-                            msg.mediaData.mediaStage !== 'RESOLVED'
-                        ) {
-                            await msg.downloadMedia({
-                                downloadEvenIfExpensive: true,
-                                rmrReason: 1
-                            });
+                        if (msg.mediaData.mediaStage !== 'RESOLVED') {
+                            try {
+                                await msg.downloadMedia({
+                                    downloadEvenIfExpensive: true,
+                                    rmrReason: 1
+                                });
+                            } catch (error) {
+                                if (!msg.directPath || !msg.mediaKey) {
+                                    throw error;
+                                }
+                            }
                         }
 
-                        if (
-                            !msg.directPath ||
-                            !msg.mediaKey ||
-                            !msg.encFilehash
-                        ) {
+                        if (!msg.directPath || !msg.mediaKey || !msg.encFilehash) {
                             throw new Error(
                                 'Data enkripsi atau directPath media tidak lengkap.'
                             );
@@ -188,12 +188,14 @@ async function handleSticker(message, args = []) {
                             window.require('WAWebDownloadManager')
                                 .downloadManager;
 
-                        const mockQpl = {
-                            addAnnotations() { return this; },
-                            end() {},
-                            start() { return this; },
-                            addPoint() { return this; }
-                        };
+                        const mockQpl = new Proxy({}, {
+                            get(target, property) {
+                                if (property === 'then') {
+                                    return undefined;
+                                }
+                                return () => mockQpl;
+                            }
+                        });
 
                         const decrypted =
                             await manager.downloadAndMaybeDecrypt({
@@ -204,13 +206,18 @@ async function handleSticker(message, args = []) {
                                 mediaKeyTimestamp: msg.mediaKeyTimestamp,
                                 mimetype: msg.mimetype,
                                 type: msg.type,
-                                signal: undefined,
+                                signal: new AbortController().signal,
                                 mediaObject: msg,
-                                qpl: mockQpl
+                                downloadQpl: mockQpl
                             });
 
+                        const data =
+                            await window.WWebJS.arrayBufferToBase64Async(
+                                decrypted
+                            );
+
                         return {
-                            data: decrypted.toString('base64'),
+                            data,
                             mimetype: msg.mimetype
                         };
                     },

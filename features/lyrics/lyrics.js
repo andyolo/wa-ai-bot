@@ -62,13 +62,25 @@ async function cariLirik(judulYouTube) {
 
     console.log('LIRIK CARI:', q);
 
-    const response = await fetch(
-        API + encodeURIComponent(q),
-        {
-            headers: { 'User-Agent': UA },
-            signal: AbortSignal.timeout(15000)
+    let response;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+        response = await fetch(
+            API + encodeURIComponent(q),
+            {
+                headers: { 'User-Agent': UA },
+                signal: AbortSignal.timeout(15000)
+            }
+        );
+
+        if (response.ok || response.status < 500 || attempt === 2) {
+            break;
         }
-    );
+
+        await new Promise(resolve =>
+            setTimeout(resolve, 1000 * (attempt + 1))
+        );
+    }
 
     if (!response.ok) {
         throw new Error('lrclib HTTP ' + response.status);
@@ -81,14 +93,7 @@ async function cariLirik(judulYouTube) {
         return null;
     }
 
-    // ==================================================
-    // PILIH KANDIDAT TERBAIK
-    //
-    // lrclib sering mengembalikan banyak versi. Kita
-    // nilai berdasarkan seberapa banyak kata dari
-    // pencarian yang muncul di nama artis + judul.
-    // ==================================================
-
+    
     const kata = q
         .toLowerCase()
         .split(/\s+/)

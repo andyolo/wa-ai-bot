@@ -8,25 +8,35 @@ async function handleTikTok(message, url, client) {
     let videoPath = null;
     let audioPath = null;
 
+    let parsedUrl;
+
     try {
-        const parsedUrl = new URL(url);
+        parsedUrl = new URL(url);
+    } catch {
+        await message.reply(
+            '❌ Link TikTok tidak valid.\n' +
+            'Contoh: /tt https://www.tiktok.com/@user/video/123'
+        );
+        return;
+    }
 
-        const allowedHosts = [
-            'tiktok.com',
-            'www.tiktok.com',
-            'm.tiktok.com',
-            'vm.tiktok.com',
-            'vt.tiktok.com'
-        ];
+    const allowedHosts = [
+        'tiktok.com',
+        'www.tiktok.com',
+        'm.tiktok.com',
+        'vm.tiktok.com',
+        'vt.tiktok.com'
+    ];
 
-        if (!allowedHosts.includes(parsedUrl.hostname)) {
-            await message.reply(
-                '❌ Link Gak Kebaca bg .\n' +
-                'Masukkan link TikTok dengan benar plis .'
-            );
-            return;
-        }
+    if (!allowedHosts.includes(parsedUrl.hostname)) {
+        await message.reply(
+            '❌ Link Gak Kebaca bg .\n' +
+            'Masukkan link TikTok dengan benar plis .'
+        );
+        return;
+    }
 
+    try {
         await message.reply('⏳ SABAR JIR...');
 
         console.log('TIKTOK URL:', url);
