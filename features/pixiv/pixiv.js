@@ -46,20 +46,13 @@ const MAX_SEND_BYTES =
 // Batas kandidat hasil search yang diacak
 const MAX_CANDIDATES = 30;
 
-// Peluang mendapat karya R-18 saat NSFW aktif (persen).
-// 60 = separuh R-18, separuh aman.
+
 const R18_ANGKA = parseInt(process.env.PIXIV_R18_CHANCE || '60', 10);
 const R18_CHANCE = isNaN(R18_ANGKA)
     ? 60
     : Math.min(100, Math.max(0, R18_ANGKA));
 
-// Jeda antar halaman (ms).
-//
-// JANGAN dikecilkan tanpa alasan. WhatsApp Web bisa
-// me-reload halamannya sendiri kalau dikirimi banyak
-// gambar terlalu cepat. Kalau itu terjadi di tengah
-// proses, puppeteer kehilangan halaman yang dipakai
-// dan error-nya jadi "Attempted to use detached Frame".
+
 const DELAY_MS = parseInt(process.env.PIXIV_DELAY_MS || '2000', 10) || 2000;
 
 // Lama menunggu sebelum mencoba ulang setelah
@@ -101,8 +94,6 @@ const DEFAULT_BLOCK_TAGS = [
     '孕',         // hamil
     '孕肚',       // perut hamil
     '出産',       // melahirkan
-    'AI生成',     // karya AI (cadangan, biasanya kena aiType)
-    'AIイラスト', // ilustrasi AI
     'NovelAI'     // karya NovelAI
 ];
 
