@@ -839,7 +839,7 @@ switch (command) {
             `UPDATE LRV BOT
  
  -Fitur tidak akan ada batas limit sebelum website LRV sudah optimal.
- -Event Christmas 2026 akan dimulai pada 24 Desember 2026.
+ -Event Christmas 2026 akan dimulai pada 24 Desember 2026 sampai 1 Januari 2027.
  -LRV BOT Gen 2 akan rilis pada 1 Januari 2027 dengan fitur unggulan gratis.
  -Saat Januari 2027, LRV akan memiliki website, server, dan domain web.`
         );
