@@ -9,6 +9,8 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
 - 🎮 **Games:** Number guessing, Rock Paper Scissors, and more.
 - 🎵 **YouTube:** Search and play audio directly through WhatsApp.
 - 📥 **Media Downloader:** TikTok, Instagram, Pinterest, and other supported platforms.
+- 🎨 **Pixiv:** Search and send illustrations. NovelAI works are allowed,
+  while gore and configured disturbing tags stay filtered independently of `/nsfw`.
 - 🖼️ **Sticker Maker:** Convert images into stickers with `/s`; use `/s -f` to keep the full image, or send a video with `/s` for a 6-second animated sticker.
 - 🎶 **AI Assistant:** AI-powered responses using Groq.
 - 📌 **Utilities:** Date information, ping, and other useful commands.
@@ -49,6 +51,18 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
    ```
 
 4. Configure the required environment variables in a `.env` file.
+
+   Pixiv ugoira can be converted and sent as MP4 by enabling:
+
+   ```env
+   PIXIV_SEND_VIDEO=true
+   PIXIV_MAX_VIDEO_MB=16
+   ```
+
+   Set `PIXIV_SEND_VIDEO=false` to disable Pixiv video delivery. Ugoira
+   conversion uses the included `ffmpeg-static` dependency.
+   AI/NovelAI works are available without changing `/nsfw`; `/nsfw` only
+   controls R-18 visibility, while R-18G and blocked tags remain filtered.
 
 5. Start the bot:
 
