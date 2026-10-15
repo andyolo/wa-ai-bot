@@ -47,9 +47,9 @@ const {
     botReact
 } = require('./reactions');
 
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY
-});
+const groq = process.env.GROQ_API_KEY
+    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+    : null;
 
 const client = new Client({
     authStrategy: new LocalAuth({
@@ -466,13 +466,7 @@ client.on('disconnected', (reason) => {
 client.on(
     'message_create',
     async (message) => {
-
-        console.log('MESSAGE DEBUG:', {
-            fromMe: message.fromMe,
-            from: message.from,
-            to: message.to,
-            body: message.body
-        });
+        try {
 
         // ==================================================
         // CEK SPAM
@@ -507,7 +501,7 @@ client.on(
         // log sama sekali (cuma di-return diam-diam).
         //
         // Jadi angka 1-5 harus tetap diloloskan.
-        const bodyBersih = message.body.trim();
+        const bodyBersih = String(message.body || '').trim();
 
         if (
             message.fromMe &&
@@ -750,12 +744,12 @@ return;
          * SEMUA INPUT SELAIN COMMAND
          */
 
-        if (!message.body.startsWith('/')) {
+        if (!plainInput.startsWith('/')) {
             return;
         }
 
         const input =
-            message.body.slice(1).trim();
+            plainInput.slice(1).trim();
 
         if (!input) {
 
@@ -1458,6 +1452,14 @@ case 'tanggal': {
                         return;
                     }
 
+                    if (!groq) {
+                        await botReply(
+                            message,
+                            'Fitur AI belum dikonfigurasi. Tambahkan GROQ_API_KEY ke file .env.'
+                        );
+                        return;
+                    }
+
                     console.log(
                         'AI REQUEST:',
                         question
@@ -1602,7 +1604,23 @@ case 'tanggal': {
                 'Terjadi kesalahan saat memproses perintah.'
             );
         }
+        } catch (error) {
+            console.error('MESSAGE HANDLER ERROR:', error);
+
+            try {
+                await message.reply(
+                    'Terjadi kesalahan saat memproses pesan.'
+                );
+            } catch (replyError) {
+                console.error(
+                    'MESSAGE HANDLER ERROR NOTIFICATION:',
+                    replyError
+                );
+            }
+        }
     }
 );
 
-client.initialize();
+client.initialize().catch((error) => {
+    console.error('BOT INITIALIZATION ERROR:', error);
+});
