@@ -767,16 +767,24 @@ switch (command) {
 
     case 'polusi': {
         const namaTempat = args.join(' ').trim();
+        const targetChatId = message.id.remote || message.from;
+        const balasPolusi = async (teks) => {
+            if (message.fromMe) {
+                await client.sendMessage(targetChatId, teks);
+                return;
+            }
+
+            await botReply(message, teks);
+        };
 
         if (!namaTempat) {
-            await botReply(
-                message,
+            await balasPolusi(
                 'Gunakan lah jir kayak: /polusi Tukka\nContoh: /polusi Sibolga kek'
             );
             return;
         }
 
-        await botReply(message, 'Sabar lapet...');
+        await balasPolusi('Sabar lapet...');
 
         try {
             const hasil = await buatGambarPolusi(namaTempat);
@@ -787,13 +795,12 @@ switch (command) {
                 'lrv-airwatch.png'
             );
 
-            await client.sendMessage(message.from, media, {
+            await client.sendMessage(targetChatId, media, {
                 caption: hasil.caption
             });
         } catch (err) {
             console.error('[AIRWATCH]', err);
-            await botReply(
-                message,
+            await balasPolusi(
                 `Gagal mengambil data polusi: ${err.message}`
             );
         }
