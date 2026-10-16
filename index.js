@@ -808,6 +808,9 @@ switch (command) {
        const menuText =
 `╭━━━「 Gen 1 LRV BOT 」━━━╮
 ┃
+┃ FITUR UNGGULAN
+┃ /polusi 
+┃
 ┃ GAME
 ┃ /tebak
 ┃ /jawab angka
@@ -821,6 +824,8 @@ switch (command) {
 ┃ /tanggal
 ┃ /natal
 ┃ /ping
+┃ /Update
+┃
 ┃
 ┃ FITUR PRIORITAS / UPDATE
 ┃ /play
@@ -830,15 +835,16 @@ switch (command) {
 ┃ /pixiv
 ┃ /hd
 ┃ /nsfw
+┃ /s
+┃
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
-┃ /s 
-┃ /update
+┃ /polusi
 ┃ 
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
-┃ /owner / Masih tahap pengembangan
+┃ /owner / Masih tahap pengembangan jir
 ┃
 ┃ ASISTEN AI ZOIX
 ┃ /ai
