@@ -43,6 +43,8 @@ const {
     handleOwner
 } = require('./features/owner/owner');
 
+const buatGambarPolusi = require('./features/polusi/polusi');
+
 const {
     botReact
 } = require('./reactions');
@@ -468,13 +470,6 @@ client.on(
     async (message) => {
         try {
 
-        // ==================================================
-        // CEK SPAM
-        //
-        // Ditaruh paling atas supaya orang yang sudah
-        // diblokir tidak diproses sama sekali - bukan cuma
-        // dibalas, tapi memang diabaikan total.
-        // ==================================================
         try {
 
             const harusDiabaikan = await cekSpam(message);
@@ -740,10 +735,6 @@ try {
 return;
 }
 
-        /*
-         * SEMUA INPUT SELAIN COMMAND
-         */
-
         if (!plainInput.startsWith('/')) {
             return;
         }
@@ -773,6 +764,42 @@ return;
         try {
 
 switch (command) {
+
+    case 'polusi': {
+        const namaTempat = args.join(' ').trim();
+
+        if (!namaTempat) {
+            await botReply(
+                message,
+                'Gunakan: /polusi Tukka\nContoh: /polusi Sibolga'
+            );
+            return;
+        }
+
+        await botReply(message, 'Sedang mengambil data kualitas udara...');
+
+        try {
+            const hasil = await buatGambarPolusi(namaTempat);
+
+            const media = new MessageMedia(
+                'image/png',
+                hasil.buffer.toString('base64'),
+                'lrv-airwatch.png'
+            );
+
+            await client.sendMessage(message.from, media, {
+                caption: hasil.caption
+            });
+        } catch (err) {
+            console.error('[AIRWATCH]', err);
+            await botReply(
+                message,
+                `Gagal mengambil data polusi: ${err.message}`
+            );
+        }
+
+        return;
+    }
 
     case 'menu':
     case 'help':
