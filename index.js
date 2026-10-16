@@ -771,12 +771,12 @@ switch (command) {
         if (!namaTempat) {
             await botReply(
                 message,
-                'Gunakan: /polusi Tukka\nContoh: /polusi Sibolga'
+                'Gunakan lah jir kayak: /polusi Tukka\nContoh: /polusi Sibolga kek'
             );
             return;
         }
 
-        await botReply(message, 'Sedang mengambil data kualitas udara...');
+        await botReply(message, 'Sabar lapet...');
 
         try {
             const hasil = await buatGambarPolusi(namaTempat);
@@ -965,7 +965,7 @@ case 'nsfw': {
     if (aksi !== 'on' && aksi !== 'off') {
         await botReply(
             message,
-            '🔞 Status NSFW sekarang: ' +
+            ' Status NSFW sekarang: ' +
             (getR18() ? 'AKTIF' : 'MATI') + '\n\n' +
             'Cara pakai:\n' +
             '/nsfw on  -> R-18 ikut muncul di /pixiv\n' +
@@ -985,8 +985,8 @@ case 'nsfw': {
             message,
             aktif
                 ? ' NSFW sudah aktif dari tadi bro.\n' +
-                  `Peluangnya di /pixiv: ${peluang}%\n` +
-                  'R-18G dan tag berbahaya tetap disaring.'
+                  `Peluangnya di /pixiv: ${peluang}%\n` 
+                  
                 : ' NSFW masih off.\n' 
                   
         );
