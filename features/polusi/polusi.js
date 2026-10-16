@@ -105,7 +105,7 @@ async function buatGambarPolusi(nama) {
 
     if (!lokasi) {
         throw new Error(
-            `Lokasi "${nama}" tidak ditemukan. Coba nama kabupaten atau provinsi.`
+            `Lokasi "${nama}" tidak ditemukan.coba yang lain.`
         );
     }
 
@@ -158,8 +158,8 @@ async function buatGambarPolusi(nama) {
             `Lokasi data: ${namaTampil}\n` +
             `US AQI: ${udara.aqi} (${kategori(udara.aqi)[0]})\n` +
             `Waktu data: ${udara.waktu}\n` +
-            `Sumber: Open-Meteo Air Quality API\n` +
-            `Catatan: estimasi model, bukan pengukuran sensor langsung.`
+            `Sumber: LRV DEKC\n` +
+            `Catatan: estimasi, bukan sensor langsung jir`
     };
 }
 
