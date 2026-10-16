@@ -942,9 +942,8 @@ case 'nsfw': {
             (getR18() ? 'AKTIF' : 'MATI') + '\n\n' +
             'Cara pakai:\n' +
             '/nsfw on  -> R-18 ikut muncul di /pixiv\n' +
-            '/nsfw off -> hanya konten umum\n\n' +
-            'Karya AI tetap bisa muncul. R-18G dan tag berbahaya ' +
-            'tetap disaring.'
+            '/nsfw off -> hanya konten umum\n\n'
+            
         );
         return;
     }
@@ -961,8 +960,8 @@ case 'nsfw': {
                 ? ' NSFW sudah aktif dari tadi bro.\n' +
                   `Peluangnya di /pixiv: ${peluang}%\n` +
                   'R-18G dan tag berbahaya tetap disaring.'
-                : '✅ NSFW masih off.\n' +
-                  'Karya AI tetap bisa muncul; tag berbahaya tetap disaring.'
+                : ' NSFW masih off.\n' 
+                  
         );
         return;
     }
@@ -970,12 +969,12 @@ case 'nsfw': {
     const hasil = setR18(aktif);
 
     let pesan = aktif
-        ? '🔞 NSFW AKTIF\n' +
-          'R-18 sekarang ikut muncul di /pixiv.\n' +
-          'R-18G dan tag berbahaya tetap disaring.'
-        : '✅ NSFW MATI\n' +
-          'Hanya karya umum yang dikirim.\n' +
-          'Karya AI tetap bisa muncul; tag berbahaya tetap disaring.';
+        ? ' NSFW AKTIF\n' +
+          'Media bahaya bisa dikirim.\n' +
+          'What are you doing broski.'
+        : ' NSFW MATI\n' +
+          'Hanya karya biasa yang dikirim jir.\n' 
+          ;
 
     if (!hasil.tersimpan) {
         pesan += '\n\n⚠️ Gagal simpan ke .env - ' +
