@@ -6,12 +6,12 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({
 }[c]));
 
 function kategori(aqi) {
-    if (aqi <= 50) return ['SEHAT', '#38b56b'];
-    if (aqi <= 100) return ['WASPADA', '#e7b83e'];
-    if (aqi <= 150) return ['TIDAK SEHAT*', '#ed8b38'];
-    if (aqi <= 200) return ['TIDAK SEHAT', '#e34d4d'];
-    if (aqi <= 300) return ['SANGAT TIDAK SEHAT', '#9b59b6'];
-    return ['BERBAHAYA', '#8e263b'];
+    if (aqi <= 50) return ['SEHAT', '#00ff66'];
+    if (aqi <= 100) return ['WASPADA', '#ffb804'];
+    if (aqi <= 150) return ['TIDAK SEHAT*', '#ff7904'];
+    if (aqi <= 200) return ['TIDAK SEHAT', '#ff0000bb'];
+    if (aqi <= 300) return ['SANGAT TIDAK SEHAT', '#64217f'];
+    return ['BERBAHAYA', '#52202a'];
 }
 
 async function json(url) {
