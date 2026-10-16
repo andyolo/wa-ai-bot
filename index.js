@@ -851,7 +851,7 @@ switch (command) {
 ┃ 
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
-┃ /owner / Masih tahap pengembangan jir
+┃ /owner
 ┃
 ┃ ASISTEN AI ZOIX
 ┃ /ai
