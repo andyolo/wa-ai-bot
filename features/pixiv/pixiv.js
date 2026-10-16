@@ -206,26 +206,6 @@ function getR18() {
 }
 
 
-// ==================================================
-// COOKIE LOGIN PIXIV
-//
-// Tanpa login, Pixiv MENYEMBUNYIKAN semua karya R-18
-// dari hasil search - walau mode=all sekalipun.
-// Sudah diuji: 4 tag berbeda + mode=r18, hasilnya 0.
-//
-// Jadi R-18 di search HANYA bisa didapat kalau bot
-// memakai cookie login.
-//
-// PIXIV_COOKIE menerima dua bentuk:
-//   1. Cookie lengkap : "PHPSESSID=abc; device_token=xyz"
-//   2. Cuma session id: "abc"  -> otomatis jadi PHPSESSID=abc
-//
-// PIXIV_PHPSESSID masih diterima sebagai alias.
-//
-// PENTING: cookie ini setara password akun Pixiv.
-// Kalau bocor, orang lain bisa memakai akunmu.
-// ==================================================
-
 const RAW_COOKIE = String(
     process.env.PIXIV_COOKIE ||
     process.env.PIXIV_PHPSESSID ||
@@ -240,12 +220,10 @@ const COOKIE_HEADER = RAW_COOKIE
         : `PHPSESSID=${RAW_COOKIE}`)
     : '';
 
-// Jadi true kalau Pixiv menolak cookie kita (HTTP 401).
+
 let cookieExpired = false;
 
-// Supaya peringatan "tidak ada R-18" cuma muncul SEKALI
-// per proses. Banyak tag memang wajar tanpa karya R-18,
-// jadi jangan sampai log jadi penuh peringatan palsu.
+
 let sudahPeringatkanR18 = false;
 
 function buildHeaders() {
@@ -292,10 +270,6 @@ if (!COOKIE_HEADER) {
 }
 
 
-// ==================================================
-// UTIL
-// ==================================================
-
 function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -327,9 +301,7 @@ async function fetchJson(url) {
 
     let response = await request();
 
-    // Pixiv membalas 401 + "PHPSESSID=deleted" kalau
-    // cookie-nya sudah nggak valid. Daripada fiturnya
-    // ikut mati, kita turun ke mode tanpa login.
+    
     if (
         response.status === 401 &&
         COOKIE_HEADER &&
@@ -389,9 +361,7 @@ function extractIllustId(input) {
     return null;
 }
 
-// Cek apakah daftar tag sebuah karya kena saringan.
-// Mencocokkan TAG PERSIS, bukan "mengandung".
-// Mengembalikan nama tag yang kena, atau null.
+
 function kenaBlokir(tags) {
 
     if (!BLOCK_TAGS.length) {
@@ -461,9 +431,6 @@ function extFromUrl(url) {
 }
 
 
-// ==================================================
-// SEARCH PIXIV
-// ==================================================
 
 async function searchPixiv(keyword) {
 
@@ -508,8 +475,7 @@ async function searchPixiv(keyword) {
         allowR18 ? 'AKTIF' : 'MATI'
     );
 
-    // Kalau sudah login tapi R-18 tetap 0, hampir pasti
-    // setting tampilan R-18 di akun Pixiv belum dinyalakan.
+    
     if (
         COOKIE_HEADER &&
         !cookieExpired &&
@@ -531,12 +497,6 @@ async function searchPixiv(keyword) {
 }
 
 
-// ==================================================
-// AMBIL DETAIL + SEMUA HALAMAN
-//
-// Tiap halaman disimpan sebagai objek berisi semua
-// varian URL, supaya bisa turun kualitas kalau perlu.
-// ==================================================
 
 function toPage(urls) {
 
@@ -583,9 +543,7 @@ async function getUgoiraMeta(id) {
 }
 
 
-// ==================================================
-// DOWNLOAD + KONVERSI UGOIRA KE VIDEO
-// ==================================================
+
 
 async function downloadImage(url, outputPath) {
 
@@ -1360,95 +1318,8 @@ async function handlePixiv(message, input, client) {
     }
 }
 
-
-// ==================================================
-// EXPORT
-// ==================================================
-
 module.exports = {
     handlePixiv,
     setR18,
     getR18
 };
-
-
-// ==================================================
-// CATATAN PENTING (jangan dihapus)
-// ==================================================
-//
-// 1. CAPTION BUKAN ARGUMEN KEDUA
-//
-//    message.reply(content, chatId, options)
-//
-//    Argumen kedua = chatId. Caption harus di
-//    options.caption. Kalau ketuker, error yang muncul
-//    cuma "Evaluation failed: t" dari kode minified
-//    WhatsApp dan sangat sulit dilacak.
-//    Ini pernah jadi bug di file ini - jangan diulang.
-//
-// 2. R-18 DI SEARCH BUTUH LOGIN
-//
-//    Tanpa cookie login, Pixiv menyembunyikan SEMUA
-//    karya R-18 dari search, walau pakai mode=all atau
-//    mode=r18. Sudah diuji dengan 4 tag: hasilnya 0.
-//    Jadi kalau pengen R-18 muncul di /pixiv <keyword>,
-//    wajib isi PIXIV_COOKIE di .env.
-//
-//    Tambahan: setting tampilan R-18 (閲覧設定) di akun
-//    Pixiv juga harus dinyalakan. Akun baru default-nya
-//    menyembunyikan R-18.
-//
-// 3. NSFW BISA DIUBAH SAAT BOT JALAN
-//
-//    /nsfw on  -> allowR18 = true,  ditulis ke .env
-//    /nsfw off -> allowR18 = false, ditulis ke .env
-//
-//    Ditulis ke .env supaya setelannya tahan restart.
-//    Kalau gagal menulis .env, setelannya tetap jalan
-//    di memori tapi hilang saat bot di-restart.
-//
-//    PENTING: R-18G (ero-guro / gore) SELALU disaring
-//    di dua tempat - filter search dan validasi link -
-//    walau NSFW sedang aktif. Jangan dihapus tanpa
-//    sadar konsekuensinya.
-//
-// 3b. SARINGAN TAG JOROK (PIXIV_BLOCK_TAGS)
-//
-//    Konten jorok di Pixiv TIDAK selalu ditandai R-18G.
-//    Hasil ukur: dari 4 karya bertag scat, hanya 1 yang
-//    R-18G - 3 lolos, bahkan 1 berating AMAN.
-//
-//    Makanya ada saringan berbasis tag. Pencocokannya
-//    TAG PERSIS supaya ホブルスカート (rok) dan
-//    スカイライダー (Kamen Rider) tidak ikut kena.
-//
-//    Ubah daftarnya lewat PIXIV_BLOCK_TAGS di .env.
-//
-// 4. COOKIE EXPIRED TIDAK BIKIN FITUR MATI
-//
-//    Pixiv membalas HTTP 401 + "PHPSESSID=deleted"
-//    kalau cookie sudah tidak valid. Bot mendeteksinya
-//    dan otomatis lanjut tanpa login, jadi fitur tetap
-//    jalan (hanya R-18-nya yang hilang).
-//
-// 5. KONEKSI WHATSAPP WEB BISA PUTUS DI TENGAH KIRIM
-//
-//    WhatsApp Web kadang me-reload halamannya sendiri
-//    kalau dikirimi banyak gambar beruntun. Puppeteer
-//    lalu kehilangan halamannya dan error-nya jadi
-//    "Attempted to use detached Frame".
-//
-//    Penanganannya:
-//      - jeda antar halaman diperbesar (PIXIV_DELAY_MS)
-//      - kalau error ini muncul, tunggu RECOVERY_MS lalu
-//        coba kirim SEKALI lagi
-//      - kalau tetap gagal, proses DIHENTIKAN dan user
-//        dikasih tahu, bukan lanjut coba halaman sisa
-//        yang sudah pasti gagal juga
-//
-// 6. KENAPA DEFAULT-NYA 'regular'
-//
-//    Gambar 'original' Pixiv bisa 18 MB, sedangkan
-//    'regular' maksimal 1200px (~800 KB). WhatsApp
-//    sendiri mengompres ke ~1600px, jadi hasil akhir
-//    di HP penerima hampir sama tapi jauh lebih cepat.
