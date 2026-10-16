@@ -832,11 +832,11 @@ switch (command) {
             message,
             `UPDATE LRV BOT
  
- -*Fitur Peta cuaca akan dirilis bulan depan atau bahkan dlam jangkau waktu dekat*.
- -*Fitur tidak akan ada batas limit sebelum website LRV sudah optimal*.
- -*Event Christmas 2026 akan dimulai pada 24 Desember 2026 sampai 1 Januari 2027*.
- -*LRV BOT Gen 2 akan rilis pada 1 Januari 2027 dengan fitur unggulan gratis*.
- -*Saat Januari 2027, LRV akan memiliki website, server, dan domain web*.`
+ 1.*Fitur Peta cuaca akan dirilis bulan depan atau bahkan dlam jangkau waktu dekat*.
+ 2.*Fitur tidak akan ada batas limit sebelum website LRV sudah optimal*.
+ 3.*Event Christmas 2026 akan dimulai pada 24 Desember 2026 sampai 1 Januari 2027*.
+ 4.*LRV BOT Gen 2 akan rilis pada 1 Januari 2027 dengan fitur unggulan gratis*.
+ 5.*Saat Januari 2027, LRV akan memiliki website, server, dan domain web*.`
         );
         return;
     }
