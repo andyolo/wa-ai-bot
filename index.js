@@ -629,13 +629,6 @@ try {
 
     console.log('PLAY VOICE NOTE TERKIRIM:', voicePath);
 
-    // ==========================================
-    // LIRIK OTOMATIS (sumber: lrclib.net)
-    //
-    // Dibungkus try/catch sendiri supaya kalau
-    // liriknya gagal, audio yang sudah terkirim
-    // tidak ikut dianggap gagal.
-    // ==========================================
     try {
 
         const lirik = await cariLirik(selected.title);
