@@ -34,6 +34,9 @@ const { handlePing } =
 const { handleHd } =
     require('./features/hd/hd');
 
+const { fetchIHSG } = require('./features/ihsg/ihsg');
+const { buatGambarIHSG } = require('./features/ihsg/grafik');
+
 const {
     handleSticker
 } = require('./features/sticker/sticker');
@@ -486,16 +489,6 @@ client.on(
             );
         }
 
-        // PENTING - JANGAN DIHAPUS:
-        //
-        // Pesan angka (buat memilih hasil /play) TIDAK
-        // diawali '/', jadi dulu ikut terbuang di sini
-        // kalau pengirimnya akun bot sendiri. Akibatnya
-        // /play selalu berhenti di daftar hasil: audionya
-        // tidak pernah terkirim, dan TIDAK ADA error di
-        // log sama sekali (cuma di-return diam-diam).
-        //
-        // Jadi angka 1-5 harus tetap diloloskan.
         const bodyBersih = String(message.body || '').trim();
 
         if (
@@ -515,10 +508,7 @@ client.on(
             await botReact(message);
         }
 
-        /*
-         * PILIH HASIL PLAY
-         */
-
+        
         if (/^[1-5]$/.test(plainInput)) {
 
             const session =
@@ -530,9 +520,7 @@ client.on(
                 return;
             }
 
-            // Sesi lama jangan dipakai lagi.
-            // Tanpa ini, angka 1-5 yang diketik berjam-jam
-            // kemudian masih memicu download lagu lama.
+            
             const BATAS_SESI_MS = 10 * 60 * 1000;
 
             if (
@@ -547,7 +535,6 @@ client.on(
                     'Daftar lagunya sudah kedaluwarsa.\n' +
                     'Ketik /play <judul> lagi ya.'
                 );
-
                 return;
             }
 
@@ -563,7 +550,7 @@ client.on(
 
             await botReact(message);
 
-            // LANJUTKAN KODE PLAY DI SINI
+            
             
             const selected =
                 session.results[
@@ -731,7 +718,6 @@ try {
         'Gagal memproses audio. Coba pilih lagu lain.'
     );
 }
-
 return;
 }
 
@@ -804,7 +790,43 @@ switch (command) {
                 `Gagal mengambil data polusi: ${err.message}`
             );
         }
+        return;
+    }
 
+    case 'ihsg': {
+        const targetChatId = message.id.remote || message.from;
+
+        const balasIHSG = async (teks) => {
+            if (message.fromMe) {
+                await client.sendMessage(targetChatId, teks);
+                return;
+            }
+
+            await botReply(message, teks);
+        };
+
+        try {
+            await balasIHSG('Mengambil data IHSG, tunggu bentar jir...');
+
+            const data = await fetchIHSG();
+            const gambar = await buatGambarIHSG(data);
+
+            const media = new MessageMedia(
+                'image/png',
+                gambar.toString('base64'),
+                'lrv-ihsg.png'
+            );
+
+            await client.sendMessage(targetChatId, media, {
+                caption: 'IHSG | Data pasar saham Indonesia kek nya'
+            });
+        } catch (err) {
+            console.error('[IHSG]', err);
+
+            await balasIHSG(
+                'Gagal mengambil data IHSG bro.'
+            );
+        }
         return;
     }
 
@@ -817,6 +839,9 @@ switch (command) {
 ┃
 ┃ FITUR UNGGULAN
 ┃ /polusi 
+┃ /ihsg
+┃
+┃
 ┃
 ┃ GAME
 ┃ /tebak
