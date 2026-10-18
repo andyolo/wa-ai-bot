@@ -116,7 +116,7 @@ async function cariLirik(judulYouTube) {
                 }
             }
 
-            // sedikit nilai lebih untuk yang ada lirik bersih
+            
             if (x.plainLyrics) {
                 skor += 0.5;
             }
@@ -134,7 +134,7 @@ async function cariLirik(judulYouTube) {
 
     let lirik = pilih.plainLyrics || '';
 
-    // Kalau cuma ada versi bertimestamp, buang timestamp-nya
+    
     if (!lirik && pilih.syncedLyrics) {
         lirik = pilih.syncedLyrics
             .replace(/^\[(?:\d{2}:)?\d{2}:\d{2}(?:[.:]\d+)?\]\s*/gm, '')
@@ -158,9 +158,6 @@ async function cariLirik(judulYouTube) {
         '|', lirik.length, 'karakter'
     );
 
-    // Album di lrclib sering diisi hal yang sama dengan
-    // artis atau judulnya (misal album = "JVKE - golden hour").
-    // Kalau memang berulang, jangan ditampilkan.
     let album = pilih.albumName || '';
 
     const al = album.toLowerCase();
@@ -186,10 +183,6 @@ async function cariLirik(judulYouTube) {
     };
 }
 
-
-// ==================================================
-// EXPORT
-// ==================================================
 
 module.exports = {
     cariLirik,
