@@ -38,8 +38,6 @@ async function pingInternet(host = HOST_PING) {
         windowsHide: true
     });
 
-    // Windows berbahasa Indonesia: "Waktu=21ms"
-    // Windows berbahasa Inggris : "time=21ms"
     const cocok = stdout.match(
         /(?:time|waktu|tiempo|temps)\s*[=<]\s*([\d.,]+)\s*ms/i
     );
@@ -48,7 +46,7 @@ async function pingInternet(host = HOST_PING) {
         return parseFloat(cocok[1].replace(',', '.'));
     }
 
-    // cadangan: ambil angka ms pertama yang ketemu
+    
     const cadangan = stdout.match(/[=<]\s*([\d.,]+)\s*ms/i);
 
     return cadangan
@@ -56,10 +54,6 @@ async function pingInternet(host = HOST_PING) {
         : null;
 }
 
-
-// ==================================================
-// FORMAT
-// ==================================================
 
 function formatDurasi(detik) {
 
@@ -80,18 +74,6 @@ function formatDurasi(detik) {
 function formatMB(bytes) {
     return (bytes / 1048576).toFixed(1) + ' MB';
 }
-
-
-// ==================================================
-// HANDLER
-//
-// Cara ukur "respon bot":
-//   Pesan pertama dikirim dulu (placeholder), lalu
-//   waktunya dicatat. Itu ROUND-TRIP NYATA lewat
-//   WhatsApp Web, bukan cuma waktu proses Node.
-//   Setelah itu pesannya DIBUAT ULANG (edit) pakai
-//   angka yang sudah didapat.
-// ==================================================
 
 async function handlePing(message, client) {
 
