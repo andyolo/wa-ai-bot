@@ -435,9 +435,7 @@ function authorDibalas(message) {
 
     if (!q) return null;
 
-    // urutan penting: yang menunjuk KE ORANG didahulukan.
-    // "from" di grup isinya ID GRUP, jadi jangan dipakai
-    // sebelum pilihan lain habis.
+    
     const calon = [
         q.author,
         q.participant,
@@ -483,15 +481,9 @@ function apakahOwner(message) {
 }
 
 
-// ==================================================
-// HANDLER COMMAND OWNER
-// ==================================================
 
 async function handleOwner(message, perintah, args) {
 
-    // ==================================================
-    // GERBANG OWNER
-    // ==================================================
 
     if (!apakahOwner(message)) {
 
@@ -502,9 +494,6 @@ async function handleOwner(message, perintah, args) {
         return;
     }
 
-    // ==================================================
-    // /owner -> menu
-    // ==================================================
 
     if (perintah === 'owner') {
 
@@ -516,16 +505,6 @@ async function handleOwner(message, perintah, args) {
 
             let kunci = target;
 
-            // Kalau nomornya nggak ditulis, ambil dari pesan
-            // yang dibalas.
-            //
-            // Ini cara PALING AKURAT, karena WhatsApp sekarang
-            // punya dua bentuk ID untuk orang yang sama:
-            //   - nomor HP  : 6285189455320@c.us
-            //   - LID       : 128978572550184@lid
-            // Angkanya beda dan tidak bisa dicocokkan otomatis.
-            // Jadi lebih aman memakai ID persis seperti yang
-            // muncul di pesannya.
             if (!kunci && message.hasQuotedMsg) {
 
                 kunci = authorDibalas(message);
@@ -623,9 +602,7 @@ async function handleOwner(message, perintah, args) {
         return;
     }
 
-    // ==================================================
-    // /blokir -> lihat daftar
-    // ==================================================
+    
 
     if (perintah === 'blokir') {
 
