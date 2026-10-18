@@ -6,9 +6,6 @@ const puppeteer = require('puppeteer');
 const { MessageMedia } = require('whatsapp-web.js');
 
 
-// ==================================================
-// DOWNLOAD FILE
-// ==================================================
 
 async function downloadFile(url, outputPath) {
 
@@ -147,9 +144,6 @@ async function searchPinterest(keyword) {
                         }
 
 
-                        // srcset biasanya berisi
-                        // beberapa resolusi sekaligus
-
                         const srcset =
                             img.getAttribute('srcset');
 
@@ -208,9 +202,6 @@ async function searchPinterest(keyword) {
         }
 
 
-        // ==================================================
-        // VALIDASI GAMBAR
-        // ==================================================
 
         const validImages =
             images.filter(url =>
@@ -232,11 +223,6 @@ async function searchPinterest(keyword) {
 
         }
 
-
-        // ==================================================
-        // BUANG THUMBNAIL KECIL
-        // ==================================================
-
         const highQualityImages =
             validImages.filter(url => {
 
@@ -251,18 +237,12 @@ async function searchPinterest(keyword) {
         );
 
 
-        // Kalau filter terlalu ketat,
-        // tetap pakai gambar valid
-
         const pool =
             highQualityImages.length
                 ? highQualityImages
                 : validImages;
 
 
-        // ==================================================
-        // URUTKAN BERDASARKAN KUALITAS
-        // ==================================================
 
         pool.sort((a, b) => {
 
@@ -307,10 +287,6 @@ async function searchPinterest(keyword) {
         });
 
 
-        // ==================================================
-        // PILIH RANDOM
-        // ==================================================
-
         const selectedImages =
             pool.slice(
                 0,
@@ -347,10 +323,6 @@ async function searchPinterest(keyword) {
 
 }
 
-
-// ==================================================
-// AMBIL GAMBAR DARI LINK PINTEREST
-// ==================================================
 
 async function getPinterestPinImage(url) {
 
@@ -415,10 +387,6 @@ async function getPinterestPinImage(url) {
 }
 
 
-// ==================================================
-// HANDLER UTAMA
-// ==================================================
-
 async function handlePinterest(
     message,
     input,
@@ -452,9 +420,6 @@ async function handlePinterest(
         let imageUrl;
 
 
-        // ==================================================
-        // MODE LINK
-        // ==================================================
 
         if (
             input.startsWith('http://') ||
@@ -472,11 +437,6 @@ async function handlePinterest(
                 );
 
         }
-
-
-        // ==================================================
-        // MODE SEARCH
-        // ==================================================
 
         else {
 
@@ -499,9 +459,6 @@ async function handlePinterest(
         );
 
 
-        // ==================================================
-        // TEMP FOLDER
-        // ==================================================
 
         const tempDir =
             path.join(
@@ -531,10 +488,6 @@ async function handlePinterest(
             );
 
 
-        // ==================================================
-        // DOWNLOAD
-        // ==================================================
-
         await downloadFile(
             imageUrl,
             imagePath
@@ -546,9 +499,6 @@ async function handlePinterest(
         );
 
 
-        // ==================================================
-        // KIRIM WHATSAPP
-        // ==================================================
 
         const media =
             MessageMedia.fromFilePath(
@@ -622,10 +572,6 @@ async function handlePinterest(
 
 }
 
-
-// ==================================================
-// EXPORT
-// ==================================================
 
 module.exports = {
     handlePinterest
