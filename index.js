@@ -905,8 +905,6 @@ switch (command) {
     case 'vip':
     case 'spam': {
 
-        // Gerbang owner ada DI DALAM handleOwner, jadi
-        // orang lain yang mencoba tetap ditolak.
         await handleOwner(message, command, args);
 
         return;
