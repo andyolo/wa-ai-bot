@@ -15,21 +15,55 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const execFileAsync = promisify(execFile);
+const { handleTikTok } = require('./features/tiktok/tiktok');
+const { handleInstagram } =
+    require('./features/instagram/instagram');
+
+const { handlePinterest } =
+    require('./features/pinterest/pinterest');
+
+const { handlePixiv, setR18, getR18 } =
+    require('./features/pixiv/pixiv');
+
+const { cariLirik } =
+    require('./features/lyrics/lyrics');
+
+const { handlePing } =
+    require('./features/ping/ping');
+
+const { handleHd } =
+    require('./features/hd/hd');
+
+const { fetchIHSG } = require('./features/ihsg/ihsg');
+const { buatGambarIHSG } = require('./features/ihsg/grafik');
+
+const {
+    handleSticker
+} = require('./features/sticker/sticker');
+
+const {
+    cekSpam,
+    handleOwner
+} = require('./features/owner/owner');
+
+const buatGambarPolusi = require('./features/polusi/polusi');
 
 const {
     botReact
 } = require('./reactions');
 
-const groq = new Groq({
-    apiKey: process.env.GROQ_API_KEY
-});
+const groq = process.env.GROQ_API_KEY
+    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+    : null;
 
 const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: './.wwebjs_auth'
     }),
+    authTimeoutMs: 120000,
     puppeteer: {
         headless: true,
+        protocolTimeout: 120000,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox'
@@ -65,16 +99,16 @@ const quotes = [
 ];
 
 const facts = [
-    'Gurita memiliki tiga jantung.',
+    'jmk48 adalah club band terbaik di ngawi.',
     'Cahaya Matahari membutuhkan sekitar 8 menit 20 detik untuk mencapai Bumi.',
-    'Air dapat ditemukan dalam tiga wujud utama: padat, cair, dan gas.',
+    'Air dapat ditemukan di dalam ngawi.',
     'Bumi berputar pada porosnya sehingga terjadi siang dan malam.',
     'Bulan tidak menghasilkan cahaya sendiri, tetapi memantulkan cahaya Matahari.',
     'DNA menyimpan informasi genetik makhluk hidup.',
     'Jerapah dan manusia sama-sama memiliki tujuh tulang leher.',
     'Antarktika merupakan benua yang paling dingin di Bumi.',
     'Saturnus memiliki sistem cincin yang sangat jelas terlihat.',
-    'Lebah menggunakan tarian untuk membantu memberi informasi lokasi sumber makanan.',
+    'mas rian memenangkan kompetisi unjuk bakat di ngawi  show.',
     'Air mendidih pada sekitar 100 derajat Celsius pada tekanan udara standar.',
     'Bumi bukanlah bola sempurna karena sedikit pepat di bagian kutub.',
     'Suara tidak dapat merambat di ruang hampa.',
@@ -259,6 +293,13 @@ async function downloadYouTubeMP3(videoUrl) {
 
     return outputPath;
 }
+
+const PLAY_AUDIO_BITRATE =
+    process.env.PLAY_AUDIO_BITRATE || '96k';
+
+const PLAY_AUDIO_CHANNELS =
+    parseInt(process.env.PLAY_AUDIO_CHANNELS || '2', 10) || 2;
+
 async function convertToVoiceNote(inputPath) {
     if (!ffmpegPath) {
         throw new Error('ffmpeg-static tidak tersedia.');
@@ -272,11 +313,15 @@ async function convertToVoiceNote(inputPath) {
         '-i', inputPath,
         '-vn',
         '-c:a', 'libopus',
-        '-b:a', '64k',
+        // naik dari 64k
+        '-b:a', PLAY_AUDIO_BITRATE,
         '-vbr', 'on',
-        '-application', 'voip',
+        // audio (musik), BUKAN voip (suara ngobrol)
+        '-application', 'audio',
         '-ar', '48000',
-        '-ac', '1',
+        // stereo, bukan mono. Set PLAY_AUDIO_CHANNELS=1
+        // kalau voice note-nya bermasalah di HP tertentu.
+        '-ac', String(PLAY_AUDIO_CHANNELS),
         outputPath
     ]);
 
@@ -426,32 +471,70 @@ client.on('disconnected', (reason) => {
 client.on(
     'message_create',
     async (message) => {
+        try {
 
-        if (message.fromMe) {
+        try {
+
+            const harusDiabaikan = await cekSpam(message);
+
+            if (harusDiabaikan) {
+                return;
+            }
+
+        } catch (spamError) {
+
+            console.error(
+                'SPAM CHECK ERROR:',
+                spamError && spamError.message
+            );
+        }
+
+        const bodyBersih = String(message.body || '').trim();
+
+        if (
+            message.fromMe &&
+            !bodyBersih.startsWith('/') &&
+            !/^[1-5]$/.test(bodyBersih)
+        ) {
             return;
         }
 
         const playerKey =
             getPlayerKey(message);
 
-        const plainInput =
-            message.body.trim();
+        const plainInput = bodyBersih;
 
         if (plainInput.startsWith('/')) {
             await botReact(message);
         }
 
-        /*
-         * PILIH HASIL PLAY
-         */
-
+        
         if (/^[1-5]$/.test(plainInput)) {
+
             const session =
                 playSessions.get(
                     playerKey
                 );
 
             if (!session) {
+                return;
+            }
+
+            
+            const BATAS_SESI_MS = 10 * 60 * 1000;
+
+            if (
+                Date.now() - (session.createdAt || 0) >
+                BATAS_SESI_MS
+            ) {
+
+                playSessions.delete(playerKey);
+
+                await botReply(
+                    message,
+                    'Daftar lagunya sudah kedaluwarsa.\n' +
+                    'Ketik /play <judul> lagi ya.'
+                );
                 return;
             }
 
@@ -465,25 +548,10 @@ client.on(
                 return;
             }
 
-            try {
-    console.log(
-        'PLAY REACTION TEST:',
-        message.id._serialized
-    );
+            await botReact(message);
 
-    await message.react('☁️');
-
-    console.log(
-        'PLAY REACTION TEST: BERHASIL'
-    );
-
-} catch (error) {
-    console.error(
-        'PLAY REACTION TEST ERROR:',
-        error
-    );
-}
-
+            
+            
             const selected =
                 session.results[
                     choice - 1
@@ -561,6 +629,52 @@ try {
 
     console.log('PLAY VOICE NOTE TERKIRIM:', voicePath);
 
+    try {
+
+        const lirik = await cariLirik(selected.title);
+
+        if (lirik && lirik.lirik) {
+
+            await message.reply(
+                '📝 ' + (lirik.judul || selected.title) + '\n' +
+                '👤 ' + (lirik.artist || selected.channel) +
+                (lirik.album ? '\n💿 ' + lirik.album : '') +
+                '\n━━━━━━━━━━━━━━━━\n' +
+                lirik.lirik
+            );
+
+            console.log(
+                'PLAY LIRIK TERKIRIM:',
+                lirik.artist, '-', lirik.judul
+            );
+        } else {
+
+            await message.reply(
+                '📝 Lirik tidak ditemukan di database.'
+            );
+
+            console.log('PLAY LIRIK: tidak ketemu untuk', selected.title);
+        }
+
+    } catch (lirikError) {
+
+        console.error(
+            'PLAY LIRIK ERROR:',
+            lirikError && lirikError.message
+        );
+
+        try {
+            await message.reply(
+                'Audio berhasil dikirim, tetapi lirik gagal dicari atau dikirim.'
+            );
+        } catch (replyError) {
+            console.error(
+                'PLAY LIRIK ERROR NOTIFICATION:',
+                replyError && replyError.message
+            );
+        }
+    }
+
     setTimeout(() => {
         for (const filePath of [audioPath, voicePath]) {
             try {
@@ -597,20 +711,15 @@ try {
         'Gagal memproses audio. Coba pilih lagu lain.'
     );
 }
-
 return;
 }
 
-        /*
-         * SEMUA INPUT SELAIN COMMAND
-         */
-
-        if (!message.body.startsWith('/')) {
+        if (!plainInput.startsWith('/')) {
             return;
         }
 
         const input =
-            message.body.slice(1).trim();
+            plainInput.slice(1).trim();
 
         if (!input) {
 
@@ -633,46 +742,312 @@ return;
 
         try {
 
-            switch (command) {
+switch (command) {
 
-               case 'menu':
-case 'help':
-case 'bantuan':
+    case 'polusi': {
+        const namaTempat = args.join(' ').trim();
+        const targetChatId = message.id.remote || message.from;
+        const balasPolusi = async (teks) => {
+            if (message.fromMe) {
+                await client.sendMessage(targetChatId, teks);
+                return;
+            }
 
-    const menuText =
-        `╭━━━「 Gen 1 LRV BOT 」━━━╮
+            await botReply(message, teks);
+        };
+
+        if (!namaTempat) {
+            await balasPolusi(
+                'Gunakan lah jir kayak: /polusi Tukka\nContoh: /polusi Sibolga kek'
+            );
+            return;
+        }
+
+        await balasPolusi('Sabar lapet...');
+
+        try {
+            const hasil = await buatGambarPolusi(namaTempat);
+
+            const media = new MessageMedia(
+                'image/png',
+                hasil.buffer.toString('base64'),
+                'lrv-airwatch.png'
+            );
+
+            await client.sendMessage(targetChatId, media, {
+                caption: hasil.caption
+            });
+        } catch (err) {
+            console.error('[AIRWATCH]', err);
+            await balasPolusi(
+                `Gagal mengambil data polusi: ${err.message}`
+            );
+        }
+        return;
+    }
+
+    case 'ihsg': {
+        const targetChatId = message.id.remote || message.from;
+
+        const balasIHSG = async (teks) => {
+            if (message.fromMe) {
+                await client.sendMessage(targetChatId, teks);
+                return;
+            }
+
+            await botReply(message, teks);
+        };
+
+        try {
+            await balasIHSG('Mengambil data IHSG, tunggu bentar jir...');
+
+            const data = await fetchIHSG();
+            const gambar = await buatGambarIHSG(data);
+
+            const media = new MessageMedia(
+                'image/png',
+                gambar.toString('base64'),
+                'lrv-ihsg.png'
+            );
+
+            await client.sendMessage(targetChatId, media, {
+                caption: 'IHSG | Data pasar saham Indonesia kek nya'
+            });
+        } catch (err) {
+            console.error('[IHSG]', err);
+
+            await balasIHSG(
+                'Gagal mengambil data IHSG bro.'
+            );
+        }
+        return;
+    }
+
+    case 'menu':
+    case 'help':
+    case 'bantuan': {
+
+       const menuText =
+`╭━━━「 Gen 1 LRV BOT 」━━━╮
 ┃
-┃ GAME 
+┃ FITUR UNGGULAN
+┃ /polusi 
+┃ /ihsg
+┃
+┃
+┃
+┃ GAME
 ┃ /tebak
 ┃ /jawab angka
 ┃ /stop
 ┃ /rps
 ┃ /skor
+┃ /quote
+┃ /fakta
 ┃
 ┃ INFORMASI
 ┃ /tanggal
 ┃ /natal
-┃ /quote
-┃ /fakta
+┃ /ping
+┃ /Update
 ┃
-┃ 🎵 MEDIA
+┃
+┃ FITUR PRIORITAS / UPDATE
 ┃ /play
+┃ /tt
+┃ /ig
+┃ /pin
+┃ /pixiv
+┃ /hd
+┃ /nsfw
+┃ /s
 ┃
-┃ Asisten AI Zoix
-┃ /ai 
+┃
+┃ FITUR DALAM TAHAP PERKEMBANGAN
+┃ /owner
+┃ /polusi
+┃ 
+┃
+┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
+┃ /owner
+┃
+┃ ASISTEN AI ZOIX
+┃ /ai
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯
 
-> © 2026 Lrv Squad`;
+> © 2026 Lrv Squad 3th
+> GitHub: https://github.com/andyolo/wa-ai-bot`;
 
-    await botReply(
+
+
+        await botReply(message, menuText);
+        return;
+    }
+
+    case 'update': {
+        await botReply(
+            message,
+            `UPDATE LRV BOT
+ 
+ 1.*Fitur Peta cuaca akan dirilis bulan depan atau bahkan dlam jangkau waktu dekat*.
+ 2.*Fitur tidak akan ada batas limit sebelum website LRV sudah optimal*.
+ 3.*Event Christmas 2026 akan dimulai pada 24 Desember 2026 sampai 1 Januari 2027*.
+ 4.*LRV BOT Gen 2 akan rilis pada 1 Januari 2027 dengan fitur unggulan gratis*.
+ 5.*Saat Januari 2027, LRV akan memiliki website, server, dan domain web*.`
+        );
+        return;
+    }
+
+    case 'owner':
+    case 'blokir':
+    case 'buka':
+    case 'vip':
+    case 'spam': {
+
+        await handleOwner(message, command, args);
+
+        return;
+    }
+
+    case 'ping': {
+
+        await handlePing(message, client);
+
+        return;
+    }
+
+    case 'hd': {
+
+        await handleHd(message, client);
+
+        return;
+    }
+
+    case 'tt': {
+        const url = args[0];
+
+        if (!url) {
+            await botReply(
+                message,
+                'Masukkan link TikTok dengan benar plis.\n' +
+                'Contoh: /tt https://www.tiktok.com/@user/video/123'
+            );
+            return;
+        }
+
+        await handleTikTok(message, url, client);
+        return;
+    }
+
+    case 'ig': {
+    const url = args[0];
+
+    if (!url) {
+        await botReply(
+            message,
+            'Masukkan link Instagram.\n' +
+            'Contoh: /ig https://www.instagram.com/reel/...'
+        );
+        return;
+    }
+
+    await handleInstagram(
         message,
-        menuText
+        url,
+        client
     );
 
     return;
-                case 'tanggal': {
+}
 
+case 'pin': {
+
+    const input = args.join(' ').trim();
+
+    await handlePinterest(
+        message,
+        input,
+        client
+    );
+
+    return;
+}
+
+case 'pixiv': {
+
+    const input = args.join(' ').trim();
+
+    await handlePixiv(
+        message,
+        input,
+        client
+    );
+
+    return;
+}
+
+case 'nsfw': {
+
+    const aksi = (args[0] || '').toLowerCase();
+
+    if (aksi !== 'on' && aksi !== 'off') {
+        await botReply(
+            message,
+            ' Status NSFW sekarang: ' +
+            (getR18() ? 'AKTIF' : 'MATI') + '\n\n' +
+            'Cara pakai:\n' +
+            '/nsfw on  -> R-18 ikut muncul di /pixiv\n' +
+            '/nsfw off -> hanya konten umum\n\n'
+            
+        );
+        return;
+    }
+
+    const aktif = aksi === 'on';
+
+    
+     if (aktif === getR18()) {
+        const peluang = process.env.PIXIV_R18_CHANCE || '50';
+
+        await botReply(
+            message,
+            aktif
+                ? ' NSFW sudah aktif dari tadi bro.\n' +
+                  `Peluangnya di /pixiv: ${peluang}%\n` 
+                  
+                : ' NSFW masih off.\n' 
+                  
+        );
+        return;
+    }
+
+    const hasil = setR18(aktif);
+
+    let pesan = aktif
+        ? ' NSFW AKTIF\n' +
+          'Media bahaya bisa dikirim.\n' +
+          'What are you doing broski.'
+        : ' NSFW MATI\n' +
+          'Hanya karya biasa yang dikirim jir.\n' 
+          ;
+
+    if (!hasil.tersimpan) {
+        pesan += '\n\n⚠️ Gagal simpan ke .env - ' +
+                 'setelan ini hilang kalau bot restart.';
+    }
+
+    await botReply(message, pesan);
+    return;
+}                                   
+
+case 's': {                         
+
+    await handleSticker(message, args);
+    return;
+}
+
+case 'tanggal': {
                     await botReply(
                         message,
                         'Hari ini: ' +
@@ -1133,6 +1508,14 @@ case 'bantuan':
                         return;
                     }
 
+                    if (!groq) {
+                        await botReply(
+                            message,
+                            'Fitur AI belum dikonfigurasi. Tambahkan GROQ_API_KEY ke file .env.'
+                        );
+                        return;
+                    }
+
                     console.log(
                         'AI REQUEST:',
                         question
@@ -1277,7 +1660,23 @@ case 'bantuan':
                 'Terjadi kesalahan saat memproses perintah.'
             );
         }
+        } catch (error) {
+            console.error('MESSAGE HANDLER ERROR:', error);
+
+            try {
+                await message.reply(
+                    'Terjadi kesalahan saat memproses pesan.'
+                );
+            } catch (replyError) {
+                console.error(
+                    'MESSAGE HANDLER ERROR NOTIFICATION:',
+                    replyError
+                );
+            }
+        }
     }
 );
 
-client.initialize();
+client.initialize().catch((error) => {
+    console.error('BOT INITIALIZATION ERROR:', error);
+});
