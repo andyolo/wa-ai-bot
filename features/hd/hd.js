@@ -9,36 +9,14 @@ const { MessageMedia } = require('whatsapp-web.js');
 
 const execFileAsync = promisify(execFile);
 
-
-// ==================================================
-// /hd - PERBESAR & PERTAJAM GAMBAR
-//
-// JUJUR SOAL BATASANNYA:
-//
-// WhatsApp mengompres foto yang dikirim lewat chat
-// biasa (kecilin ke ~1600px + JPEG). Jadi foto yang
-// diterima bot sudah versi rusak.
-//
-// Fitur ini MEMPERBESAR dan MEMPERTAJAM, tapi TIDAK
-// bisa mengembalikan detail yang sudah hilang.
-//
-// Supaya hasilnya maksimal, kirim fotonya sebagai
-// DOKUMEN (bukan Galeri) - WhatsApp tidak mengompres
-// dokumen, jadi bot menerima file aslinya utuh.
-//
-// Untuk AI upscale yang benar-benar menambah detail,
-// perlu layanan/model terpisah (belum dipasang).
-// ==================================================
-
-// Berapa kali diperbesar
 const SKALA =
     parseInt(process.env.HD_SCALE || '2', 10) || 2;
 
-// Batas sisi terpanjang hasil (biar nggak jadi raksasa)
+
 const MAX_PX =
     parseInt(process.env.HD_MAX_PX || '4096', 10) || 4096;
 
-// Kualitas JPEG (1 = terbaik, 31 = terburuk)
+
 const KUALITAS =
     parseInt(process.env.HD_QUALITY || '2', 10) || 2;
 
@@ -49,10 +27,6 @@ const MIME_DIDUKUNG = [
     'image/webp'
 ];
 
-
-// ==================================================
-// UTIL
-// ==================================================
 
 function safeUnlink(filePath) {
 
@@ -68,13 +42,6 @@ function safeUnlink(filePath) {
     }
 }
 
-// Cek apakah API internal WhatsApp Web masih tersedia.
-//
-// whatsapp-web.js mengambil media masuk lewat nama-nama
-// internal WhatsApp (WAWebCollections, WAWebDownloadManager).
-// Kalau WhatsApp Web update dan nama itu berubah, unduhan
-// media GAGAL TOTAL - tapi errornya cuma tampil sebagai "t"
-// tanpa penjelasan. Fungsi ini bikin penyebabnya kelihatan.
 async function cekInternalWa(client) {
 
     try {
@@ -109,12 +76,6 @@ async function cekInternalWa(client) {
     }
 }
 
-// Bongkar status media langsung dari data WhatsApp Web.
-//
-// Ini yang paling menentukan: kalau mediaStage-nya
-// bukan RESOLVED (misal REUPLOADING / ERROR / FETCHING),
-// berarti WhatsApp sendiri belum berhasil mengambil
-// medianya - dan itu tidak bisa dibenerin dari sisi bot.
 async function cekStatusMedia(client, msgId) {
 
     try {
@@ -174,19 +135,6 @@ async function cekStatusMedia(client, msgId) {
     }
 }
 
-// ==================================================
-// CARA UNDUH CADANGAN
-//
-// downloadMedia() bawaan whatsapp-web.js menelan error
-// aslinya, jadi yang kelihatan cuma satu huruf acak.
-//
-// Fungsi ini mengulang langkah yang sama TAPI dengan
-// try/catch sendiri, jadi pesan error sebenarnya
-// kelihatan. Sekalian memakai mockQpl yang tahan
-// method apa pun - versi bawaan cuma menyediakan 2
-// method, dan WhatsApp Web yang lebih baru bisa
-// memanggil method lain (langsung error).
-// ==================================================
 async function unduhMediaSendiri(client, msgId) {
 
     if (!client || !client.pupPage || !msgId) {
@@ -223,8 +171,7 @@ async function unduhMediaSendiri(client, msgId) {
 
             out.langkah.push('decrypt');
 
-            // mockQpl tahan method apa pun: properti apa saja
-            // mengembalikan fungsi yang mengembalikan dirinya.
+          
             const qpl = new Proxy({}, {
                 get(t, p) {
                     if (p === 'then') return undefined;
@@ -242,15 +189,6 @@ async function unduhMediaSendiri(client, msgId) {
                 downloadQpl: qpl,
             };
 
-            // WhatsApp menolak unduhan kalau mimetype-nya tidak
-            // dikenal:
-            //   "Unexpected mimetype application/octet-stream
-            //    for media type image"
-            //
-            // Padahal versi bawaan whatsapp-web.js TIDAK
-            // mengirim mimetype sama sekali. Jadi kita coba
-            // beberapa bentuk sekaligus, lalu laporkan mana
-            // yang lolos.
             const varian = [
                 { nama: 'bawaan: type saja', opsi: { type: msg.type } },
                 { nama: 'type + mimetype', opsi: { type: msg.type, mimetype: msg.mimetype } },
@@ -310,22 +248,6 @@ async function unduhMediaSendiri(client, msgId) {
     }, msgId);
 }
 
-// ==================================================
-// PASTIKAN ID PESANNYA ADA
-//
-// downloadMedia() mengambil media lewat ID pesan
-// (this.id._serialized). Kalau ID-nya kosong, WhatsApp
-// mencari pesan ber-ID "undefined", gagal, dan error-nya
-// cuma tampil sebagai satu huruf acak (t / r).
-//
-// Format ID WhatsApp:
-//   fromMe_remote_namaId_participant
-// contoh:
-//   false_123@g.us_ABC123_456@lid
-//
-// Di beberapa kondisi _serialized tidak terisi, jadi kita
-// bangun ulang dari bagian-bagiannya.
-// ==================================================
 function pastikanIdPesan(pesan) {
 
     if (!pesan || !pesan.id) {
@@ -335,26 +257,24 @@ function pastikanIdPesan(pesan) {
 
     const id = pesan.id;
 
-    // Bentuk 1: id-nya sudah berupa string
+   
     if (typeof id === 'string') {
         console.warn('HD: id berupa string, dibungkus jadi objek');
         pesan.id = { _serialized: id };
         return id;
     }
 
-    // Bentuk 2: sudah lengkap
+    
     if (id._serialized) {
         return id._serialized;
     }
 
-    // Bentuk 3: bangun ulang dari bagian-bagiannya
     if (id.remote && id.id) {
 
         const gabung =
             `${id.fromMe}_${id.remote}_${id.id}` +
             (id.participant ? '_' + id.participant : '');
 
-        // tempelkan supaya downloadMedia() bisa memakainya
         id._serialized = gabung;
 
         console.warn('HD: _serialized kosong, dibangun ulang ->', gabung);
@@ -362,7 +282,7 @@ function pastikanIdPesan(pesan) {
         return gabung;
     }
 
-    // Bentuk 4: tidak dikenali - laporkan isinya
+   
     console.error(
         'HD: tidak bisa membangun id pesan. Isinya:',
         JSON.stringify(id)
@@ -371,8 +291,6 @@ function pastikanIdPesan(pesan) {
     return null;
 }
 
-// Ubah ukuran file jadi teks yang enak dibaca.
-// Contoh: 55706 -> "54 KB", 2411724 -> "2.3 MB"
 function formatUkuran(bytes) {
 
     if (!bytes || bytes < 0) return "0 KB";
@@ -402,10 +320,6 @@ function bersihkanNama(nama) {
 }
 
 
-// ==================================================
-// HANDLER
-// ==================================================
-
 async function handleHd(message, client) {
 
     let inputPath = null;
@@ -413,12 +327,6 @@ async function handleHd(message, client) {
 
     try {
 
-        // ==================================================
-        // 1. CARI SUMBER GAMBARNYA
-        //
-        // Bisa dari pesan ini sendiri (foto + caption /hd),
-        // atau dari pesan yang dibalas.
-        // ==================================================
 
         console.log(
             'HD DEBUG: type =', message.type,
@@ -443,31 +351,17 @@ async function handleHd(message, client) {
 
         if (!sumber) {
 
-            // Singkat saja - kalau panjang malah ramai di grup.
+            
             await message.reply('📸 Mana fotonya?');
 
             return;
         }
 
-        // ==================================================
-        // 2. UNDUH GAMBARNYA (coba sampai 2 kali)
-        //
-        // downloadMedia() hanya "gagal diam-diam" kalau
-        // servernya balas 404. Selain itu error-nya dilempar
-        // dari dalam halaman WhatsApp, dan yang kelihatan di
-        // log cuma "t" - tidak informatif sama sekali.
-        // ==================================================
-
-        // Perbaiki dulu ID pesannya kalau perlu - tanpa ini,
-        // downloadMedia() pasti gagal.
         pastikanIdPesan(sumber);
 
         let media = null;
         let galatUnduh = null;
 
-        // Cukup SEKALI. Cara bawaan ini memang selalu gagal
-        // di sini (whatsapp-web.js tidak mengirim mimetype),
-        // jadi mengulanginya cuma bikin lambat 2,5 detik.
         for (let coba = 1; coba <= 1 && !media; coba++) {
 
             try {
@@ -501,9 +395,6 @@ async function handleHd(message, client) {
             }
         }
 
-        // ==================================================
-        // CADANGAN: unduh sendiri
-        // ==================================================
         if (!media) {
 
             console.warn('HD: cara bawaan gagal, coba unduh manual...');
@@ -577,20 +468,12 @@ async function handleHd(message, client) {
             return;
         }
 
-        // SENGAJA TIDAK ada pesan "sedang memproses".
-        // Reaksinya sudah dikirim otomatis oleh index.js
-        // (botReact) begitu perintahnya masuk, jadi chat
-        // tidak perlu dipenuhi pesan teks. Langsung
-        // kirim hasilnya saja.
 
         console.log(
             'HD: memproses tanpa pesan tunggu (hanya reaksi)'
         );
 
-        // ==================================================
-        // 3. TULIS KE FILE SEMENTARA
-        // ==================================================
-
+        
         const tempDir = path.join(os.tmpdir(), 'wa-bot-hd');
 
         if (!fs.existsSync(tempDir)) {
@@ -613,14 +496,6 @@ async function handleHd(message, client) {
             Buffer.from(media.data, 'base64')
         );
 
-        // ==================================================
-        // 4. TENTUKAN FORMAT KELUARAN
-        //
-        // PNG / WebP -> tetap PNG supaya transparansi tidak
-        //   hilang (kalau dijadikan JPEG, area transparan
-        //   jadi hitam).
-        // JPEG -> JPEG kualitas tinggi.
-        // ==================================================
 
         const keluarPng =
             extMasuk === '.png' || extMasuk === '.webp';
@@ -635,14 +510,7 @@ async function handleHd(message, client) {
             `HD_${namaDasar}${extKeluar}`
         );
 
-        // ==================================================
-        // 5. UPSCALE PAKAI FFMPEG
-        //
-        // scale  : perbesar SKALA kali, Lanczos (tajam),
-        //          dibatasi MAX_PX, dimensi dibuat genap
-        // unsharp: pertajam sedikit biar nggak keliatan buram
-        // ==================================================
-
+       
         const filter =
             `scale=w='min(iw*${SKALA},${MAX_PX})'` +
             `:h='min(ih*${SKALA},${MAX_PX})'` +
@@ -690,27 +558,10 @@ async function handleHd(message, client) {
             (ukuranKeluar / 1024).toFixed(0) + ' KB'
         );
 
-        // ==================================================
-        // 6. KIRIM SEBAGAI DOKUMEN
-        //
-        // Kalau dikirim sebagai foto biasa, WhatsApp akan
-        // mengompres ulang dan hasil upscale-nya jadi sia-sia.
-        // ==================================================
-
+        
         const hasil = MessageMedia.fromFilePath(outputPath);
 
-        // ==================================================
-        // KIRIM SEBAGAI FOTO (mode HD)
-        //
-        // sendMediaAsHd bikin WhatsApp memakai mode HD-nya:
-        // fotonya tampil LANGSUNG di chat (bukan lampiran
-        // file), tapi tetap tidak dikompres sekeras mode
-        // biasa.
-        //
-        // Mau dikirim sebagai dokumen (resolusi paling utuh,
-        // tapi jadi lampiran file)? Set di .env:
-        //   HD_AS_DOKUMEN=true
-        // ==================================================
+       
 
         const sebagaiDokumen =
             String(process.env.HD_AS_DOKUMEN || 'false')
@@ -722,8 +573,7 @@ async function handleHd(message, client) {
             {
                 sendMediaAsDocument: sebagaiDokumen,
                 sendMediaAsHd: !sebagaiDokumen,
-                // Ukuran file sebelum -> sesudah,
-                // contoh: "54 KB > 217 KB"
+                
                 caption:
                     `${formatUkuran(ukuranMasuk)} > ` +
                     `${formatUkuran(ukuranKeluar)}`
@@ -767,10 +617,6 @@ async function handleHd(message, client) {
     }
 }
 
-
-// ==================================================
-// EXPORT
-// ==================================================
 
 module.exports = {
     handleHd,
