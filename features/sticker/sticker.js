@@ -11,6 +11,18 @@ const execFileAsync = promisify(execFile);
 const MAX_STICKER_BYTES = 1024 * 1024;
 const ANIMATED_STICKER_DURATION_SECONDS = 6;
 
+async function replyInCommandChat(message, text) {
+    if (message.fromMe) {
+        await message.client.sendMessage(
+            message.id?.remote || message.from,
+            text
+        );
+        return;
+    }
+
+    await message.reply(text);
+}
+
 async function createAnimatedSticker(inputBuffer) {
     if (!ffmpegPath) {
         throw new Error('ffmpeg-static tidak tersedia.');
@@ -79,6 +91,7 @@ async function handleSticker(message, args = []) {
     const fullMode = args.some(
         arg => String(arg).toLowerCase() === '-f'
     );
+    const targetChatId = message.id?.remote || message.from;
 
     try {
         let sourceMessage = message;
@@ -100,9 +113,9 @@ async function handleSticker(message, args = []) {
         }
 
         if (!sourceMessage.hasMedia) {
-            await message.reply(
-                'Kirim foto/video bersama /s atau balas foto/video dengan /s.\n' +
-                'Pakai /s -f untuk stiker foto tanpa dipotong.'
+            await replyInCommandChat(
+                message,
+                'Kirim foto/video bersama /s atau balas foto/video dengan /s. Gunakan /s -f agar foto tidak dipotong.'
             );
             return;
         }
@@ -294,7 +307,8 @@ async function handleSticker(message, args = []) {
 
             outputFilename = 'sticker.webp';
         } else {
-            await message.reply(
+            await replyInCommandChat(
+                message,
                 'Format ini belum didukung. Kirim gambar atau video.'
             );
             return;
@@ -311,7 +325,7 @@ async function handleSticker(message, args = []) {
         );
 
         await message.client.sendMessage(
-            message.from,
+            targetChatId,
             sticker,
             {
                 sendMediaAsSticker: true,
@@ -337,8 +351,9 @@ async function handleSticker(message, args = []) {
         );
 
         try {
-            await message.reply(
-                'Gagal memproses stiker jir. Cek log bot.'
+            await replyInCommandChat(
+                message,
+                'Gagal memproses stiker.'
             );
         } catch (replyError) {
             console.error(
