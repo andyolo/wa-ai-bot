@@ -958,9 +958,8 @@ switch (command) {
 ╰━━━━━━━━━━━━━━━━━━╯
 
 > © 2026 Lrv Squad 3th
-> GitHub: https://github.com/andyolo/wa-ai-bot
-> Website: https://andyolo.github.io/lrv-website/`;
-
+> Website: https://andyolo.github.io/lrv-website/
+> GitHub: https://github.com/andyolo/wa-ai-bot`;
 
         await botReply(message, menuText);
         return;
