@@ -1321,5 +1321,6 @@ async function handlePixiv(message, input, client) {
 module.exports = {
     handlePixiv,
     setR18,
-    getR18
+    getR18,
+    kenaBlokir
 };
