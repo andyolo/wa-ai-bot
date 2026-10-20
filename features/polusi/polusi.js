@@ -119,7 +119,7 @@ async function buatGambarPolusi(nama) {
         try {
             const l = await cariLokasi(namaWilayah);
             if (l && !kandidat.some(
-                k => k.latitude === l.latitude &&
+                k => k.latitude === l.latituwsde &&
                      k.longitude === l.longitude
             )) kandidat.push(l);
         } catch {}
