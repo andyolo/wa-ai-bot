@@ -6,6 +6,7 @@ const { promisify } = require('util');
 
 const ffmpegPath = require('ffmpeg-static');
 const { MessageMedia } = require('whatsapp-web.js');
+const { getQuotedMessage } = require('../quoted-message');
 
 const execFileAsync = promisify(execFile);
 
@@ -342,7 +343,7 @@ async function handleHd(message, client) {
 
         } else if (message.hasQuotedMsg) {
 
-            const quoted = await message.getQuotedMessage();
+            const quoted = await getQuotedMessage(message);
 
             if (quoted && quoted.hasMedia && quoted.type !== 'sticker') {
                 sumber = quoted;
