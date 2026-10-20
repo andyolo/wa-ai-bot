@@ -965,17 +965,6 @@ switch (command) {
         return;
     }
 
-
-     case 'Kepercayaan': {
-        await botReply(
-            message,
-            `Kepercaan kepada Indonesia
- 
- 1.* 69%`
-        );
-        return;
-    }
-
     case 'update': {
         await botReply(
             message,
