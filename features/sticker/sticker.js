@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { promisify } = require('util');
 const { execFile } = require('child_process');
+const { getQuotedMessage } = require('../quoted-message');
 
 const execFileAsync = promisify(execFile);
 const MAX_STICKER_BYTES = 1024 * 1024;
@@ -98,17 +99,10 @@ async function handleSticker(message, args = []) {
 
         // Ambil media dari pesan yang dibalas jika diperlukan.
         if (!sourceMessage.hasMedia && message.hasQuotedMsg) {
-            try {
-                const quoted = await message.getQuotedMessage();
+            const quoted = await getQuotedMessage(message);
 
-                if (quoted?.hasMedia) {
-                    sourceMessage = quoted;
-                }
-            } catch (error) {
-                console.error(
-                    '[STICKER QUOTED ERROR]',
-                    error?.stack || error
-                );
+            if (quoted?.hasMedia) {
+                sourceMessage = quoted;
             }
         }
 
