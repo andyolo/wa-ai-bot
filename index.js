@@ -37,6 +37,9 @@ const { handleHd } =
 const { fetchIHSG } = require('./features/ihsg/ihsg');
 const { buatGambarIHSG } = require('./features/ihsg/grafik');
 
+const { execute: handleR34 } =
+    require('./features/rule34/rule34');
+
 const {
     handleSticker
 } = require('./features/sticker/sticker');
@@ -786,6 +789,10 @@ switch (command) {
         return;
     }
 
+    case 'r34': {
+        await handleR34(message, args);
+        return;
+    }
     case 'ihsg': {
         const targetChatId = message.id.remote || message.from;
 
@@ -858,6 +865,7 @@ switch (command) {
 ┃ /ig
 ┃ /pin
 ┃ /pixiv
+┃ /rtreefour
 ┃ /hd
 ┃ /nsfw
 ┃ /s
