@@ -3,7 +3,6 @@ require('dotenv').config();
 const {
     Client,
     LocalAuth,
-    Message,
     MessageMedia
 } = require('whatsapp-web.js');
 
@@ -44,6 +43,10 @@ const { execute: handleR34 } =
 const {
     handleSticker
 } = require('./features/sticker/sticker');
+const {
+    getQuotedMessage,
+    deleteQuotedMessageForEveryone
+} = require('./features/quoted-message');
 
 const {
     cekSpam,
@@ -753,22 +756,46 @@ switch (command) {
         const targetChatId = message.id.remote || message.from;
 
         try {
-            if (!message.from.endsWith('@g.us')) {
+            console.log(
+                `[DELETE] Command diterima | chat=${targetChatId} | ` +
+                `hasQuotedMsg=${Boolean(message.hasQuotedMsg)}`
+            );
+
+            if (!targetChatId.endsWith('@g.us')) {
                 await botReply(message, 'Fitur ini khusus grup jir.');
                 return;
             }
 
-            const quotedData = message._data?.quotedMsg;
-            const quotedId = quotedData?.id;
+            if (!message.hasQuotedMsg) {
+                await botReply(
+                    message,
+                    'Reply pesan yang mau dihapus, lalu ketik /d.'
+                );
+                return;
+            }
+
+            const quotedMsg = await getQuotedMessage(message);
+            const quotedId = quotedMsg?.id;
             const quotedChatId =
                 typeof quotedId?.remote === 'object'
                     ? quotedId.remote._serialized
                     : quotedId?.remote;
 
-            if (!message.hasQuotedMsg || !quotedData || !quotedId?._serialized) {
+            if (!quotedId?._serialized) {
+                console.error('[DELETE QUOTE UNRESOLVED]', {
+                    quotedDataType: typeof message._data?.quotedMsg,
+                    quotedDataKeys: message._data?.quotedMsg
+                        ? Object.keys(message._data.quotedMsg)
+                        : [],
+                    quotedIdType: typeof message._data?.quotedMsg?.id,
+                    quotedIdKeys: message._data?.quotedMsg?.id &&
+                        typeof message._data.quotedMsg.id === 'object'
+                        ? Object.keys(message._data.quotedMsg.id)
+                        : []
+                });
                 await botReply(
                     message,
-                    'Reply pesan yang mau dihapus, lalu ketik /d.'
+                    'Reply terdeteksi, tapi ID pesan target tidak terbaca. Coba update WhatsApp Web dan restart bot.'
                 );
                 return;
             }
@@ -778,18 +805,7 @@ switch (command) {
                 return;
             }
 
-            const chat = await message.getChat();
-            const botId = client.info.wid._serialized;
-            const botParticipant = chat.participants?.find(
-                p => p.id._serialized === botId
-            );
-
-            if (!botParticipant?.isAdmin && !botParticipant?.isSuperAdmin) {
-                await botReply(message, 'Bot harus jadi admin grup dulu jir.');
-                return;
-            }
-
-            await new Message(client, quotedData).delete(true);
+            await deleteQuotedMessageForEveryone(quotedMsg);
             console.log(`[DELETE] Pesan dihapus dari ${targetChatId}`);
         } catch (err) {
             console.error('[DELETE ERROR]', err);
