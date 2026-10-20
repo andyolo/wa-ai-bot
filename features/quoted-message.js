@@ -1,22 +1,19 @@
 const { Message } = require('whatsapp-web.js');
 
-function getQuotedMessage(message) {
-    const quotedData = message?._data?.quotedMsg;
+function normalizeQuotedMessage(message, quotedData) {
     const quotedId = quotedData?.id;
-
     if (!quotedData || !quotedId) {
-        return getQuotedMessageFallback(message);
-    }
-
-    if (quotedId._serialized) {
-        return new Message(message.client, quotedData);
+        return undefined;
     }
 
     const serializedId =
-        typeof quotedId === 'string' &&
-        /^(true|false)_.+@[^_]+_.+/.test(quotedId)
-            ? quotedId
-            : undefined;
+        typeof quotedId === 'string'
+            ? /^(true|false)_.+@[^_]+_.+/.test(quotedId)
+                ? quotedId
+                : undefined
+            : typeof quotedId._serialized === 'string'
+                ? quotedId._serialized
+                : undefined;
     const parsedSerializedId = serializedId?.match(
         /^(true|false)_(.+?@[^_]+)_(.+)$/
     );
@@ -43,19 +40,21 @@ function getQuotedMessage(message) {
             : participantValue;
 
     if (!remote || !messageId) {
-        return getQuotedMessageFallback(message);
+        return undefined;
     }
 
+    const fromMe =
+        idData.fromMe === true ||
+        idData.fromMe === 'true' ||
+        parsedSerializedId?.[1] === 'true';
     const normalizedId = {
         ...idData,
-        fromMe:
-            idData.fromMe === true ||
-            parsedSerializedId?.[1] === 'true',
+        fromMe,
         remote,
         id: messageId,
         ...(participant ? { participant } : {}),
         _serialized: serializedId ||
-            `${idData.fromMe === true ? 'true' : 'false'}_${remote}_${messageId}` +
+            `${fromMe ? 'true' : 'false'}_${remote}_${messageId}` +
                 (participant ? `_${participant}` : '')
     };
 
@@ -65,8 +64,41 @@ function getQuotedMessage(message) {
     });
 }
 
+function serializeMessageId(id) {
+    if (id?._serialized) {
+        return id._serialized;
+    }
+
+    const remote =
+        typeof id?.remote === 'object'
+            ? id.remote?._serialized
+            : id?.remote;
+
+    if (!remote || !id?.id) {
+        return undefined;
+    }
+
+    const fromMe = id.fromMe === true || id.fromMe === 'true';
+    const participant =
+        typeof id.participant === 'object'
+            ? id.participant?._serialized
+            : id.participant;
+
+    return `${fromMe ? 'true' : 'false'}_${remote}_${id.id}` +
+        (participant ? `_${participant}` : '');
+}
+
+function getQuotedMessage(message) {
+    const quotedMessage = normalizeQuotedMessage(
+        message,
+        message?._data?.quotedMsg
+    );
+
+    return quotedMessage || getQuotedMessageFallback(message);
+}
+
 async function getQuotedMessageFallback(message) {
-    const parentMessageId = message?.id?._serialized;
+    const parentMessageId = serializeMessageId(message?.id);
 
     if (!message?.hasQuotedMsg || !parentMessageId) {
         return undefined;
@@ -103,40 +135,14 @@ async function getQuotedMessageFallback(message) {
         );
     }
 
-    const quotedId = quotedData.id;
-    const remoteValue =
-        quotedId.remote || quotedData.from || quotedData.to;
-    const remote =
-        typeof remoteValue === 'object'
-            ? remoteValue?._serialized
-            : remoteValue;
-    const participantValue =
-        quotedId.participant || quotedData.author;
-    const participant =
-        typeof participantValue === 'object'
-            ? participantValue?._serialized
-            : participantValue;
-
-    if (!remote || !quotedId.id) {
+    const quotedMessage = normalizeQuotedMessage(message, quotedData);
+    if (!quotedMessage) {
         throw new Error(
             'Model reply WhatsApp tidak memiliki remote chat atau ID pesan.'
         );
     }
 
-    const normalizedId = {
-        ...quotedId,
-        remote,
-        ...(participant ? { participant } : {}),
-        _serialized:
-            quotedId._serialized ||
-            `${quotedId.fromMe ? 'true' : 'false'}_${remote}_${quotedId.id}` +
-                (participant ? `_${participant}` : '')
-    };
-
-    return new Message(message.client, {
-        ...quotedData,
-        id: normalizedId
-    });
+    return quotedMessage;
 }
 
 async function deleteQuotedMessageForEveryone(message) {
