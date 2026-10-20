@@ -11,6 +11,8 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
 - 📥 **Media Downloader:** TikTok, Instagram, Pinterest, and other supported platforms.
 - 🎨 **Pixiv:** Search and send illustrations. NovelAI works are allowed,
   while gore and configured disturbing tags stay filtered independently of `/nsfw`.
+- 🔞 **e621:** Search explicit-rated posts with `/r34 [tag]`; `/nsfw on` is
+  required, and disturbing/AI-tag filters are applied.
 - 🖼️ **Sticker Maker:** Convert images into stickers with `/s`; use `/s -f` to keep the full image, or send a video with `/s` for a 6-second animated sticker.
 - 🎶 **AI Assistant:** AI-powered responses using Groq.
 - 📌 **Utilities:** Date information, ping, and other useful commands.
@@ -63,6 +65,20 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
    conversion uses the included `ffmpeg-static` dependency.
    AI/NovelAI works are available without changing `/nsfw`; `/nsfw` only
    controls R-18 visibility, while R-18G and blocked tags remain filtered.
+
+   e621 requests retry DNS through Cloudflare DNS-over-HTTPS when the
+   network's DNS fails. The default User-Agent identifies this project;
+   you can set `E621_USER_AGENT` to include your e621 username as requested
+   by the API guidelines. You can set `RULE34_DOH_URL` to another trusted
+   HTTPS DNS-over-HTTPS resolver. If the network also blocks that resolver,
+   configure a trusted HTTP/HTTPS proxy for these requests:
+
+   ```env
+   RULE34_PROXY_URL=http://127.0.0.1:8080
+   ```
+
+   Replace the example with a proxy you control or trust. TLS certificate
+   verification remains enabled; public/untrusted proxies are not recommended.
 
 5. Start the bot:
 
