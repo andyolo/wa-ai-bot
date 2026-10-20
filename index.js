@@ -928,7 +928,7 @@ switch (command) {
 ┃ /natal
 ┃ /ping
 ┃ /Update
-┃
+┃ /kepercayaan
 ┃
 ┃ FITUR PRIORITAS / UPDATE
 ┃ /play
@@ -962,6 +962,17 @@ switch (command) {
 > GitHub: https://github.com/andyolo/wa-ai-bot`;
 
         await botReply(message, menuText);
+        return;
+    }
+
+
+     case 'Kepercayaan': {
+        await botReply(
+            message,
+            `Kepercaan kepada Indonesia
+ 
+ 1.* 69%`
+        );
         return;
     }
 
