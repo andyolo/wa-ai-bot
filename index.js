@@ -3,6 +3,7 @@ require('dotenv').config();
 const {
     Client,
     LocalAuth,
+    Message,
     MessageMedia
 } = require('whatsapp-web.js');
 
@@ -747,6 +748,60 @@ return;
 
 switch (command) {
 
+    case 'd':
+    case 'delete': {
+        const targetChatId = message.id.remote || message.from;
+
+        try {
+            if (!message.from.endsWith('@g.us')) {
+                await botReply(message, 'Fitur ini khusus grup jir.');
+                return;
+            }
+
+            const quotedData = message._data?.quotedMsg;
+            const quotedId = quotedData?.id;
+            const quotedChatId =
+                typeof quotedId?.remote === 'object'
+                    ? quotedId.remote._serialized
+                    : quotedId?.remote;
+
+            if (!message.hasQuotedMsg || !quotedData || !quotedId?._serialized) {
+                await botReply(
+                    message,
+                    'Reply pesan yang mau dihapus, lalu ketik /d.'
+                );
+                return;
+            }
+
+            if (quotedChatId !== targetChatId) {
+                await botReply(message, 'Pesan target harus dari grup ini jir.');
+                return;
+            }
+
+            const chat = await message.getChat();
+            const botId = client.info.wid._serialized;
+            const botParticipant = chat.participants?.find(
+                p => p.id._serialized === botId
+            );
+
+            if (!botParticipant?.isAdmin && !botParticipant?.isSuperAdmin) {
+                await botReply(message, 'Bot harus jadi admin grup dulu jir.');
+                return;
+            }
+
+            await new Message(client, quotedData).delete(true);
+            console.log(`[DELETE] Pesan dihapus dari ${targetChatId}`);
+        } catch (err) {
+            console.error('[DELETE ERROR]', err);
+            await botReply(
+                message,
+                'Gagal hapus pesannya jir tanya atmin dulu.'
+            );
+        }
+
+        return;
+    }
+
     case 'polusi': {
         const namaTempat = args.join(' ').trim();
         const targetChatId = message.id.remote || message.from;
@@ -874,7 +929,7 @@ switch (command) {
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
 ┃ /polusi
-┃ 
+┃ /d --- /delete
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
 ┃ /owner
