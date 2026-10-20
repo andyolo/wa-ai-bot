@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs');
+const { getQuotedMessage } = require('../quoted-message');
 
 
 // ==================================================
@@ -513,7 +514,7 @@ async function handleOwner(message, perintah, args) {
 
                     try {
 
-                        const quoted = await message.getQuotedMessage();
+                        const quoted = await getQuotedMessage(message);
 
                         if (quoted) {
                             kunci = quoted.author || quoted.from;
@@ -761,14 +762,13 @@ async function handleOwner(message, perintah, args) {
                 // cara cepat: baca data mentahnya
                 kunci = authorDibalas(message);
 
-                // cadangan: cara bawaan, tapi dibungkus
-                // try/catch karena bisa melempar error
-                // tak terbaca dan bikin perintah gagal total
+                // Baca data kutipan melalui helper tanpa memanggil API
+                // getQuotedMessage WhatsApp Web yang bisa gagal.
                 if (!kunci) {
 
                     try {
 
-                        const quoted = await message.getQuotedMessage();
+                        const quoted = await getQuotedMessage(message);
 
                         if (quoted) {
                             kunci = quoted.author || quoted.from;
