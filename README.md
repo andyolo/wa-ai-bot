@@ -79,6 +79,8 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
 
    Replace the example with a proxy you control or trust. TLS certificate
    verification remains enabled; public/untrusted proxies are not recommended.
+   If `/r34` reports an expired TLS certificate, check the server clock and
+   try a different network or a trusted proxy; do not disable TLS verification.
 
 5. Start the bot:
 
