@@ -105,7 +105,7 @@ function buildSearchUrl(query) {
     const url = new URL(API_URL);
     url.searchParams.set(
         'tags',
-        ['rating:e', query].filter(Boolean).join(' ')
+        ['rating:e', '-furry', query].filter(Boolean).join(' ')
     );
     url.searchParams.set('limit', String(MAX_RESULTS));
     return url;

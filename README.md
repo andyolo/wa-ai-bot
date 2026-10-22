@@ -12,7 +12,7 @@ LRV BOT is a WhatsApp automation project designed to provide useful tools, enter
 - 🎨 **Pixiv:** Search and send illustrations. NovelAI works are allowed,
   while gore and configured disturbing tags stay filtered independently of `/nsfw`.
 - 🔞 **e621:** Search explicit-rated posts with `/r34 [tag]`; `/nsfw on` is
-  required, and disturbing/AI-tag filters are applied.
+  required. Furry-tagged posts and disturbing/AI-tagged posts are filtered out.
 - 🖼️ **Sticker Maker:** Convert images into stickers with `/s`; use `/s -f` to keep the full image, or send a video with `/s` for a 6-second animated sticker.
 - 🎶 **AI Assistant:** AI-powered responses using Groq.
 - 📌 **Utilities:** Date information, ping, and other useful commands.
