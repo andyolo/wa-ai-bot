@@ -936,7 +936,6 @@ switch (command) {
 ┃ /ig
 ┃ /pin
 ┃ /pixiv
-┃ /rtreefour
 ┃ /hd
 ┃ /nsfw
 ┃ /s
