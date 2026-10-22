@@ -152,7 +152,27 @@ function getUserAgent() {
 }
 
 function getNetworkErrorCode(error) {
-    return error.code || error.cause?.code;
+    let currentError = error;
+    while (currentError) {
+        if (currentError.code) {
+            return currentError.code;
+        }
+        currentError = currentError.cause;
+    }
+    return undefined;
+}
+
+function addCertificateGuidance(error) {
+    if (getNetworkErrorCode(error) !== 'CERT_HAS_EXPIRED') {
+        return error;
+    }
+
+    return new Error(
+        'Sertifikat TLS yang diterima saat menghubungi e621 sudah kedaluwarsa. ' +
+        'Periksa tanggal/jam server, lalu coba jaringan lain atau proxy tepercaya ' +
+        'melalui RULE34_PROXY_URL. Verifikasi TLS tetap aktif.',
+        { cause: error }
+    );
 }
 
 function shouldRetryWithDoh(error) {
@@ -337,6 +357,10 @@ async function requestHttps(url, options, redirectCount = 0) {
     try {
         return await requestHttpsOnce(url, options, redirectCount);
     } catch (error) {
+        if (getNetworkErrorCode(error) === 'CERT_HAS_EXPIRED') {
+            throw addCertificateGuidance(error);
+        }
+
         if (getProxyAgent() || !shouldRetryWithDoh(error)) {
             throw error;
         }
@@ -355,6 +379,10 @@ async function requestHttps(url, options, redirectCount = 0) {
                 createDohLookup(addresses)
             );
         } catch (fallbackError) {
+            if (getNetworkErrorCode(fallbackError) === 'CERT_HAS_EXPIRED') {
+                throw addCertificateGuidance(fallbackError);
+            }
+
             throw new Error(
                 `${error.message}; DNS-over-HTTPS juga gagal: ` +
                 fallbackError.message,
