@@ -928,7 +928,7 @@ switch (command) {
 ┃ /natal
 ┃ /ping
 ┃ /Update
-┃ /kepercayaan
+┃
 ┃
 ┃ FITUR PRIORITAS / UPDATE
 ┃ /play
@@ -939,12 +939,12 @@ switch (command) {
 ┃ /hd
 ┃ /nsfw
 ┃ /s
-┃
+┃ /d --- /delete
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
 ┃ /owner
 ┃ /polusi
-┃ /d --- /delete
+┃ /r33+1
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
 ┃ /owner
@@ -1572,7 +1572,6 @@ case 'tanggal': {
                     return;
 
                 case 'ai': {
-
                     const question =
                         args.join(' ');
 
@@ -1613,9 +1612,7 @@ case 'tanggal': {
                                         'Kamu adalah AI assistant di bot WhatsApp. ' +
                                         'Jawab dalam bahasa Indonesia. ' +
                                         'Jawaban singkat, jelas, natural, dan langsung ke inti. ' +
-                                        'Untuk informasi terbaru atau yang dapat berubah, gunakan web search. ' +
-                                        'Periksa tanggal sumber. Jangan mengarang fakta. ' +
-                                        'Jangan mencampurkan informasi lama dengan informasi terbaru. ' +
+                                        'Jangan mengarang fakta atau menyatakan informasi terbaru sebagai sesuatu yang sudah diverifikasi. ' +
                                         'Untuk tanggal, waktu, dan hitungan hari, gunakan perhitungan sistem jika tersedia. ' +
                                         'Gunakan teks biasa tanpa Markdown.'
                                 },
@@ -1625,32 +1622,38 @@ case 'tanggal': {
                                 }
                             ],
 
-                            tools: [
-                                {
-                                    type:
-                                        'browser_search'
-                                }
-                            ],
-
-                            tool_choice: 'auto',
-
                             reasoning_effort:
                                 'low',
 
                             max_completion_tokens:
                                 1000
+                        }, {
+                            timeout: 30000
+                        }).catch((error) => {
+                            console.error('AI REQUEST ERROR:', error);
+                            return null;
                         });
 
-                    let answer =
+                    if (!response) {
+                        await botReply(
+                            message,
+                            'AI sedang gagal memproses pertanyaanmu. Coba lagi beberapa saat.'
+                        );
+                        return;
+                    }
+
+                    const responseContent =
                         response.choices &&
                         response.choices[0] &&
                         response.choices[0].message &&
                         response.choices[0].message.content;
 
-                    if (!answer) {
+                    let answer = typeof responseContent === 'string'
+                        ? responseContent.trim()
+                        : '';
 
-                        answer =
-                            'AI tidak memberikan jawaban.';
+                    if (!answer) {
+                        answer = 'AI tidak memberikan jawaban. Coba ulangi pertanyaanmu.';
                     }
 
                     answer = answer

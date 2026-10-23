@@ -1,10 +1,18 @@
 const https = require('https');
+const dns = require('dns');
 const net = require('net');
 const { MessageMedia } = require('whatsapp-web.js');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { getR18, kenaBlokir } = require('../pixiv/pixiv');
 
-const API_URL = 'https://e621.net/posts.json';
+const API_URL = 'https://danbooru.donmai.us/posts.json';
+const API_HOST = 'danbooru.donmai.us';
+const IMAGE_HOSTS = new Set([
+    'cdn.donmai.us',
+    'danbooru.donmai.us'
+]);
+const SITE_NAME = 'Danbooru';
+const SITE_REFERER = 'https://danbooru.donmai.us/';
 const DEFAULT_DOH_URL = 'https://cloudflare-dns.com/dns-query';
 const DEFAULT_USER_AGENT =
     'wa-ai-bot/1.0 (https://github.com/andyolo/wa-ai-bot)';
@@ -13,12 +21,52 @@ const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_API_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const DOH_TIMEOUT_MS = 8000;
+const NETWORK_RETRY_DELAYS_MS = [750];
+const NETWORK_RETRY_CODES = new Set([
+    'ENOTFOUND',
+    'EAI_AGAIN',
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'ECONNREFUSED',
+    'ERR_TLS_CERT_ALTNAME_INVALID',
+    'ERR_CERT_AUTHORITY_INVALID'
+]);
+
+console.info(`[R34] Backend aktif: ${SITE_NAME} (${API_HOST})`);
 
 let proxyAgent;
 let configuredProxyUrl;
 let lastApiRequestAt = 0;
 
 const BLOCKED_TAGS = new Set([
+    'furry',
+    'anthro',
+    'feral',
+    'animal',
+    'animal_focus',
+    'animal_only',
+    'animal_humanoid',
+    'creature',
+    'monster',
+    'monster_girl',
+    'mermaid',
+    'merman',
+    'fish_tail',
+    'cetacean_tail',
+    'animal_snout',
+    'snout',
+    'beak',
+    'paws',
+    'hooves',
+    'half_animal',
+    'pokemon',
+    'digimon',
+    'nonhuman',
+    'non-human',
+    'nonhuman_character',
+    'robot',
+    'android',
+    'living_object',
     'scat',
     'scat_play',
     'scat fetish',
@@ -73,6 +121,23 @@ const AI_GENERATED_TAGS = new Set([
     'midjourney'
 ]);
 
+const HUMAN_CHARACTER_TAGS = new Set([
+    '1girl',
+    '2girls',
+    '3girls',
+    '4girls',
+    '5girls',
+    '6+girls',
+    '1boy',
+    '2boys',
+    '3boys',
+    '4boys',
+    '5boys',
+    '6+boys',
+    'female_focus',
+    'male_focus'
+]);
+
 function normalizeTags(tags) {
     if (Array.isArray(tags)) {
         return tags.map(tag => String(tag).trim().toLowerCase());
@@ -101,14 +166,44 @@ function isBlocked(tags) {
     );
 }
 
+function isHumanCharacter(tags) {
+    const normalizedTags = normalizeTags(tags);
+    return normalizedTags.some(tag => HUMAN_CHARACTER_TAGS.has(tag));
+}
+
 function buildSearchUrl(query) {
     const url = new URL(API_URL);
-    url.searchParams.set(
-        'tags',
-        ['rating:e', '-furry', query].filter(Boolean).join(' ')
-    );
+    url.searchParams.set('tags', normalizeSearchTags(query).join(' '));
     url.searchParams.set('limit', String(MAX_RESULTS));
     return url;
+}
+
+function normalizeSearchTags(query) {
+    const requestedTags = String(query || '')
+        .split(/[\s,]+/)
+        .map(tag => tag.replace(/^#+/, '').trim().toLowerCase())
+        .filter(Boolean);
+
+    if (requestedTags.length > 1) {
+        throw new Error(
+            'API Danbooru tanpa login membatasi pencarian menjadi satu tag. ' +
+            'Gunakan satu tag karakter, misalnya /r34 alisa_miklova_kuze.'
+        );
+    }
+
+    const requestedTag = requestedTags[0];
+    if (requestedTag && requestedTag.startsWith('-')) {
+        throw new Error(
+            'Masukkan satu tag positif tanpa tanda minus, misalnya /r34 blue_hair.'
+        );
+    }
+    if (requestedTag && BLOCKED_TAGS.has(requestedTag)) {
+        throw new Error(`Tag "${requestedTag}" diblokir oleh penyaring media.`);
+    }
+
+    return requestedTag
+        ? ['rating:e', requestedTag]
+        : ['rating:e'];
 }
 
 function getProxyAgent() {
@@ -141,11 +236,11 @@ function getProxyAgent() {
 
 function getUserAgent() {
     const userAgent = String(
-        process.env.E621_USER_AGENT || DEFAULT_USER_AGENT
+        process.env.RULE34_USER_AGENT || DEFAULT_USER_AGENT
     ).trim();
 
     if (!userAgent || /[\r\n]/.test(userAgent)) {
-        throw new Error('E621_USER_AGENT harus berupa satu baris yang valid.');
+        throw new Error('RULE34_USER_AGENT harus berupa satu baris yang valid.');
     }
 
     return userAgent;
@@ -156,6 +251,12 @@ function getNetworkErrorCode(error) {
     while (currentError) {
         if (currentError.code) {
             return currentError.code;
+        }
+        const messageCode = String(currentError.message || '').match(
+            /\b(ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|ECONNREFUSED|ERR_TLS_CERT_ALTNAME_INVALID|ERR_CERT_AUTHORITY_INVALID)\b/
+        );
+        if (messageCode) {
+            return messageCode[1];
         }
         currentError = currentError.cause;
     }
@@ -168,7 +269,7 @@ function addCertificateGuidance(error) {
     }
 
     return new Error(
-        'Sertifikat TLS yang diterima saat menghubungi e621 sudah kedaluwarsa. ' +
+        `Sertifikat TLS yang diterima saat menghubungi ${SITE_NAME} sudah kedaluwarsa. ` +
         'Periksa tanggal/jam server, lalu coba jaringan lain atau proxy tepercaya ' +
         'melalui RULE34_PROXY_URL. Verifikasi TLS tetap aktif.',
         { cause: error }
@@ -176,15 +277,14 @@ function addCertificateGuidance(error) {
 }
 
 function shouldRetryWithDoh(error) {
-    return [
-        'ENOTFOUND',
-        'EAI_AGAIN',
-        'ECONNRESET',
-        'ETIMEDOUT',
-        'ECONNREFUSED',
-        'ERR_TLS_CERT_ALTNAME_INVALID',
-        'ERR_CERT_AUTHORITY_INVALID'
-    ].includes(getNetworkErrorCode(error));
+    return NETWORK_RETRY_CODES.has(getNetworkErrorCode(error));
+}
+
+function canTryAlternateRoute(error) {
+    return (
+        shouldRetryWithDoh(error) ||
+        getNetworkErrorCode(error) === 'CERT_HAS_EXPIRED'
+    );
 }
 
 async function resolveWithDoh(hostname) {
@@ -240,8 +340,13 @@ async function resolveWithDoh(hostname) {
     return addresses;
 }
 
-function createDohLookup(addresses) {
-    return (_hostname, options, callback) => {
+function createDohLookup(hostname, addresses) {
+    return (requestedHostname, options, callback) => {
+        if (requestedHostname !== hostname) {
+            dns.lookup(requestedHostname, options, callback);
+            return;
+        }
+
         if (options && options.all) {
             callback(null, addresses);
             return;
@@ -252,7 +357,13 @@ function createDohLookup(addresses) {
     };
 }
 
-function requestHttpsOnce(url, options, redirectCount, lookup) {
+function requestHttpsOnce(
+    url,
+    options,
+    redirectCount,
+    lookup,
+    bypassProxy = false
+) {
     const targetUrl = new URL(url);
     if (targetUrl.protocol !== 'https:') {
         return Promise.reject(new Error('Hanya HTTPS yang didukung.'));
@@ -268,7 +379,7 @@ function requestHttpsOnce(url, options, redirectCount, lookup) {
         };
 
         const request = https.get(targetUrl, {
-            agent: getProxyAgent(),
+            agent: bypassProxy ? undefined : getProxyAgent(),
             ...(lookup ? { lookup } : {}),
             headers: {
                 'User-Agent': getUserAgent(),
@@ -299,14 +410,39 @@ function requestHttpsOnce(url, options, redirectCount, lookup) {
                     redirectUrl,
                     options,
                     redirectCount + 1,
-                    lookup
+                    lookup,
+                    bypassProxy
                 ).then(resolve, reject);
                 return;
             }
 
             if (statusCode < 200 || statusCode >= 300) {
+                const errorChunks = [];
+                let errorBytes = 0;
+                const maxErrorBytes = 512;
+
+                response.on('data', chunk => {
+                    if (errorBytes >= maxErrorBytes) {
+                        return;
+                    }
+
+                    const remainingBytes = maxErrorBytes - errorBytes;
+                    const part = chunk.subarray(0, remainingBytes);
+                    errorChunks.push(part);
+                    errorBytes += part.length;
+                });
+                response.on('end', () => {
+                    const responseText = Buffer.concat(errorChunks)
+                        .toString('utf8')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    const detail = responseText
+                        ? `: ${responseText.slice(0, 300)}`
+                        : '';
+                    fail(new Error(`HTTP ${statusCode}${detail}`));
+                });
+                response.on('error', fail);
                 response.resume();
-                fail(new Error(`HTTP ${statusCode}`));
                 return;
             }
 
@@ -339,7 +475,12 @@ function requestHttpsOnce(url, options, redirectCount, lookup) {
                     resolve({
                         body: Buffer.concat(chunks, totalBytes),
                         headers: response.headers,
-                        url: targetUrl
+                        url: targetUrl,
+                        route: lookup
+                            ? 'DNS-over-HTTPS'
+                            : bypassProxy
+                                ? 'langsung'
+                                : 'proxy'
                     });
                 }
             });
@@ -354,40 +495,105 @@ function requestHttpsOnce(url, options, redirectCount, lookup) {
 }
 
 async function requestHttps(url, options, redirectCount = 0) {
+    const targetUrl = new URL(url);
+    const routeErrors = [];
+    let proxy;
+
     try {
-        return await requestHttpsOnce(url, options, redirectCount);
+        proxy = getProxyAgent();
     } catch (error) {
-        if (getNetworkErrorCode(error) === 'CERT_HAS_EXPIRED') {
-            throw addCertificateGuidance(error);
-        }
+        routeErrors.push(`proxy: ${error.message}`);
+        console.info(
+            '[R34] Proxy tidak dapat digunakan; mencoba koneksi langsung:',
+            error.message
+        );
+    }
 
-        if (getProxyAgent() || !shouldRetryWithDoh(error)) {
-            throw error;
-        }
-
-        const targetUrl = new URL(url);
+    if (proxy) {
         try {
-            const addresses = await resolveWithDoh(targetUrl.hostname);
-            console.warn(
-                '[R34] DNS langsung gagal; mencoba DNS-over-HTTPS untuk',
+            return await requestWithNetworkRetries(
+                () => requestHttpsOnce(targetUrl, options, redirectCount),
                 targetUrl.hostname
             );
-            return await requestHttpsOnce(
+        } catch (error) {
+            if (!canTryAlternateRoute(error)) {
+                throw error;
+            }
+            routeErrors.push(`proxy: ${error.message}`);
+            console.info(
+                `[R34] Proxy gagal menghubungi ${targetUrl.hostname}; ` +
+                'mencoba koneksi langsung.'
+            );
+        }
+    }
+
+    try {
+        return await requestWithNetworkRetries(
+            () => requestHttpsOnce(
                 targetUrl,
                 options,
                 redirectCount,
-                createDohLookup(addresses)
-            );
-        } catch (fallbackError) {
-            if (getNetworkErrorCode(fallbackError) === 'CERT_HAS_EXPIRED') {
-                throw addCertificateGuidance(fallbackError);
+                undefined,
+                true
+            ),
+            targetUrl.hostname
+        );
+    } catch (error) {
+        if (!canTryAlternateRoute(error)) {
+            throw error;
+        }
+        routeErrors.push(`langsung: ${error.message}`);
+        console.info(
+            `[R34] Koneksi langsung gagal ke ${targetUrl.hostname}; ` +
+            'mencoba DNS-over-HTTPS.'
+        );
+    }
+
+    try {
+        const addresses = await resolveWithDoh(targetUrl.hostname);
+        return await requestWithNetworkRetries(
+            () => requestHttpsOnce(
+                targetUrl,
+                options,
+                redirectCount,
+                createDohLookup(targetUrl.hostname, addresses),
+                true
+            ),
+            targetUrl.hostname
+        );
+    } catch (error) {
+        if (getNetworkErrorCode(error) === 'CERT_HAS_EXPIRED') {
+            routeErrors.push(`DNS-over-HTTPS: ${error.message}`);
+            throw addCertificateGuidance(new Error(
+                `Semua jalur koneksi gagal (${routeErrors.join('; ')}).`,
+                { cause: error }
+            ));
+        }
+        routeErrors.push(`DNS-over-HTTPS: ${error.message}`);
+        throw new Error(
+            `Gagal menghubungi ${targetUrl.hostname} melalui ` +
+            `${routeErrors.join('; ')}.`,
+            { cause: error }
+        );
+    }
+}
+
+async function requestWithNetworkRetries(request, hostname) {
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            return await request();
+        } catch (error) {
+            const retryDelay = NETWORK_RETRY_DELAYS_MS[attempt];
+            if (!retryDelay || !shouldRetryWithDoh(error)) {
+                throw error;
             }
 
-            throw new Error(
-                `${error.message}; DNS-over-HTTPS juga gagal: ` +
-                fallbackError.message,
-                { cause: fallbackError }
+            console.info(
+                `[R34] Koneksi ${hostname} gagal (${error.message}); ` +
+                `mencoba ulang dalam ${retryDelay} ms (${attempt + 2}/` +
+                `${NETWORK_RETRY_DELAYS_MS.length + 1}).`
             );
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
     }
 }
@@ -412,52 +618,59 @@ async function fetchJson(url) {
             validateUrl: redirectUrl => {
                 if (
                     redirectUrl.protocol !== 'https:' ||
-                    redirectUrl.hostname !== 'e621.net'
+                    redirectUrl.hostname !== API_HOST
                 ) {
                     throw new Error('URL pengalihan API tidak aman.');
                 }
             }
         });
 
-        let data;
+        let posts;
         try {
-            data = JSON.parse(response.body.toString('utf8'));
+            posts = JSON.parse(response.body.toString('utf8'));
         } catch {
-            throw new Error('Respons API bukan JSON yang valid.');
+            throw new Error('Respons API Danbooru bukan JSON yang valid.');
         }
 
-        if (!data || !Array.isArray(data.posts)) {
-            throw new Error('Format respons API tidak dikenali.');
+        if (!Array.isArray(posts)) {
+            throw new Error('Respons API Danbooru bukan daftar post.');
         }
 
-        return data.posts.map(post => ({
-            ...post,
-            file_url: post.sample?.url || post.file?.url || '',
-            tags: normalizeTags(post.tags)
-        }));
+        return normalizePosts(posts);
     } catch (error) {
-        throw new Error(`Gagal mengambil hasil e621: ${error.message}`);
+        throw new Error(`Gagal mengambil hasil ${SITE_NAME}: ${error.message}`);
     }
+}
+
+function normalizePosts(posts) {
+    return posts.filter(post =>
+        post && typeof post === 'object' && !Array.isArray(post)
+    ).map(post => ({
+        ...post,
+        file_url: post.file_url || post.large_file_url || '',
+        tags: normalizeTags(post.tag_string || post.tags)
+    }));
+}
+
+function isAllowedImageHost(hostname) {
+    return IMAGE_HOSTS.has(hostname);
 }
 
 function parseImageUrl(fileUrl) {
     if (typeof fileUrl !== 'string' || !fileUrl.trim()) {
-        throw new Error('URL gambar e621 kosong');
+        throw new Error(`URL gambar ${SITE_NAME} kosong`);
     }
 
-    const imageUrl = new URL(fileUrl, 'https://e621.net');
+    const imageUrl = new URL(fileUrl, SITE_REFERER);
     if (imageUrl.protocol === 'http:') {
         imageUrl.protocol = 'https:';
     }
 
     if (
         imageUrl.protocol !== 'https:' ||
-        !(
-            imageUrl.hostname === 'e621.net' ||
-            imageUrl.hostname.endsWith('.e621.net')
-        )
+        !isAllowedImageHost(imageUrl.hostname)
     ) {
-        throw new Error('URL gambar e621 tidak aman');
+        throw new Error(`URL gambar ${SITE_NAME} tidak aman`);
     }
 
     return imageUrl;
@@ -516,7 +729,7 @@ async function fetchImage(post) {
         maxBytes: MAX_IMAGE_BYTES,
         timeoutMs: 30000,
         headers: {
-            'Referer': 'https://e621.net/'
+            'Referer': SITE_REFERER
         },
         validateUrl: redirectUrl => {
             parseImageUrl(redirectUrl.href);
@@ -524,7 +737,7 @@ async function fetchImage(post) {
     });
 
     if (!isSupportedImage({ file_url: response.url.href })) {
-        throw new Error('URL pengalihan gambar e621 tidak aman');
+        throw new Error(`URL pengalihan gambar ${SITE_NAME} tidak aman`);
     }
 
     const declaredType = String(response.headers['content-type'] || '')
@@ -548,43 +761,51 @@ async function fetchImage(post) {
     const buffer = response.body;
     const contentType = detectImageType(buffer);
     if (!contentType) {
-        throw new Error('Respons e621 bukan berkas gambar yang valid');
+        throw new Error(`Respons ${SITE_NAME} bukan berkas gambar yang valid`);
     }
 
-    return new MessageMedia(
-        contentType,
-        buffer.toString('base64'),
-        `rule34-${post.id}`
-    );
+    return {
+        media: new MessageMedia(
+            contentType,
+            buffer.toString('base64'),
+            `rule34-${post.id}`
+        ),
+        sourceUrl: response.url,
+        route: response.route,
+        bytes: buffer.length
+    };
 }
 
 async function execute(message, args = []) {
     if (!getR18()) {
-        await message.reply(
-            'Fitur /r34 sedang nonaktif. Aktifkan dulu dengan /nsfw on.'
-        );
+        await message.reply('R34 lagi mati jir. Aktifin dulu pakai /nsfw on.');
         return;
     }
 
     const query = args.join(' ').trim();
-    const caption = query
-        ? `e621 | ${query}`
-        : 'e621 | Acak';
+
+    let searchUrl;
+    try {
+        searchUrl = buildSearchUrl(query);
+    } catch (error) {
+        await message.reply(
+            `Pakai satu tag aja jir, contohnya /r34 ${query.includes('_') ? 'hakurei_reimu' : 'blue_hair'}.`
+        );
+        return;
+    }
 
     try {
-        const posts = await fetchJson(buildSearchUrl(query));
+        await message.reply('Bentar jir, lagi nyari...');
+        const posts = await fetchJson(searchUrl);
         const candidates = posts.filter(post =>
             post &&
             isSupportedImage(post) &&
+            isHumanCharacter(post.tags) &&
             !isBlocked(post.tags)
         );
 
         if (!candidates.length) {
-            await message.reply(
-                query
-                    ? 'Tidak ada hasil yang lolos penyaring tag. Coba tag lain.'
-                    : 'Tidak ada hasil acak yang lolos penyaring.'
-            );
+            await message.reply('Gak nemu jir, coba tag lain.');
             return;
         }
 
@@ -596,14 +817,22 @@ async function execute(message, args = []) {
         let lastError;
         for (const post of shuffled.slice(0, 5)) {
             try {
-                const media = await fetchImage(post);
-                await message.reply(media, undefined, {
-                    caption
+                const result = await fetchImage(post);
+                await message.reply(result.media, undefined, {
+                    caption: 'Nih jir, dapet satu.'
                 });
+                console.info(
+                    `[R34] Media terkirim: post #${post.id}, ` +
+                    `${result.sourceUrl.hostname}, ${result.bytes} byte, ` +
+                    `jalur ${result.route}.`
+                );
                 return;
             } catch (error) {
                 lastError = error;
-                console.warn('[R34] Gagal mengirim kandidat e621:', error.message);
+                console.info(
+                    `[R34] Kandidat post #${post.id} gagal; mencoba kandidat lain:`,
+                    error.message
+                );
             }
         }
 
@@ -611,9 +840,26 @@ async function execute(message, args = []) {
     } catch (error) {
         console.error('[R34] Gagal memproses pencarian:', error);
         await message.reply(
-            `Gagal mengambil hasil e621: ${error.message}`
+            shouldRetryWithDoh(error) ||
+            getNetworkErrorCode(error) === 'CERT_HAS_EXPIRED' ||
+            /gagal menghubungi|certificate has expired|sertifikat tls/i
+                .test(error.message)
+                ? 'Sabar cok, koneksinya lagi ngambek.'
+                : 'Yah, gagal ngambil gambarnya. Coba lagi bentar.'
         );
     }
 }
 
-module.exports = { execute };
+module.exports = {
+    execute,
+    buildSearchUrl,
+    normalizeSearchTags,
+    normalizePosts,
+    isAllowedImageHost,
+    isBlocked,
+    isHumanCharacter,
+    requestWithNetworkRetries,
+    requestHttps,
+    fetchJson,
+    fetchImage
+};
