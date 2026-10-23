@@ -5,7 +5,8 @@ const ytDlp = require('yt-dlp-exec');
 const ffmpegPath = require('ffmpeg-static');
 
 async function handleTikTok(message, url, client) {
-    let videoPath = null;
+    let downloadDir = null;
+    let mediaPaths = [];
     let audioPath = null;
 
     let parsedUrl;
@@ -41,82 +42,96 @@ async function handleTikTok(message, url, client) {
 
         console.log('TIKTOK URL:', url);
 
-        const tempDir = path.join(os.tmpdir(), 'wa-bot-tiktok');
+        const tempRoot = path.join(os.tmpdir(), 'wa-bot-tiktok');
 
-        if (!fs.existsSync(tempDir)) {
-            fs.mkdirSync(tempDir, { recursive: true });
+        if (!fs.existsSync(tempRoot)) {
+            fs.mkdirSync(tempRoot, { recursive: true });
         }
 
-        const timestamp = Date.now();
+        downloadDir = fs.mkdtempSync(path.join(tempRoot, 'request-'));
 
-        videoPath = path.join(
-            tempDir,
-            `tiktok_${timestamp}.mp4`
-        );
+        const outputPrefix = 'tiktok_';
 
-        audioPath = path.join(
-            tempDir,
-            `tiktok_${timestamp}.mp3`
-        );
+        audioPath = path.join(downloadDir, 'audio.mp3');
 
-        console.log('TIKTOK DOWNLOAD:', videoPath);
+        console.log('TIKTOK DOWNLOAD:', downloadDir);
 
         await ytDlp(url, {
-            output: videoPath,
+            output: path.join(
+                downloadDir,
+                `${outputPrefix}%(autonumber)s.%(ext)s`
+            ),
             format: 'best[ext=mp4]/best',
-            noPlaylist: true,
             ffmpegLocation: ffmpegPath
         });
 
-        console.log('TIKTOK VIDEO READY:', videoPath);
+        mediaPaths = fs.readdirSync(downloadDir)
+            .filter(fileName => fileName.startsWith(outputPrefix))
+            .map(fileName => path.join(downloadDir, fileName));
 
-        if (!fs.existsSync(videoPath)) {
-            throw new Error('File video tidak ditemukan setelah download.');
+        if (mediaPaths.length === 0) {
+            throw new Error('Media TikTok tidak ditemukan setelah download.');
         }
 
         await message.reply('📥 Otw bro...');
 
         const { MessageMedia } = require('whatsapp-web.js');
-
-        const videoMedia = MessageMedia.fromFilePath(videoPath);
-
-        await message.reply(
-            videoMedia,
-            undefined,
-            {
-                sendMediaAsDocument: false
-            }
-        );
-
-        console.log('TIKTOK VIDEO SENT');
-
-        // Audio MP3
-        console.log('TIKTOK AUDIO CONVERT...');
-
-        await ytDlp(url, {
-            output: audioPath,
-            format: 'bestaudio/best',
-            extractAudio: true,
-            audioFormat: 'mp3',
-            audioQuality: '0',
-            noPlaylist: true,
-            ffmpegLocation: ffmpegPath
+        const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
+        const videoExtensions = new Set(['.mp4', '.webm', '.mov', '.mkv']);
+        const mediaToSend = mediaPaths.filter(mediaPath => {
+            const extension = path.extname(mediaPath).toLowerCase();
+            return imageExtensions.has(extension) || videoExtensions.has(extension);
         });
 
-        console.log('TIKTOK AUDIO READY:', audioPath);
+        if (mediaToSend.length === 0) {
+            throw new Error('Format media TikTok tidak didukung.');
+        }
 
-        if (fs.existsSync(audioPath)) {
-            const audioMedia = MessageMedia.fromFilePath(audioPath);
+        for (const mediaPath of mediaToSend) {
+            const media = MessageMedia.fromFilePath(mediaPath);
 
             await message.reply(
-                audioMedia,
+                media,
                 undefined,
                 {
-                    sendAudioAsVoice: false
+                    sendMediaAsDocument: false
                 }
             );
+        }
 
-            console.log('TIKTOK AUDIO SENT');
+        const videoPath = mediaToSend.find(mediaPath =>
+            videoExtensions.has(path.extname(mediaPath).toLowerCase())
+        );
+
+        if (videoPath) {
+            console.log('TIKTOK VIDEO SENT:', videoPath);
+            console.log('TIKTOK AUDIO CONVERT...');
+
+            await ytDlp(url, {
+                output: audioPath,
+                format: 'bestaudio/best',
+                extractAudio: true,
+                audioFormat: 'mp3',
+                audioQuality: '0',
+                noPlaylist: true,
+                ffmpegLocation: ffmpegPath
+            });
+
+            console.log('TIKTOK AUDIO READY:', audioPath);
+
+            if (fs.existsSync(audioPath)) {
+                const audioMedia = MessageMedia.fromFilePath(audioPath);
+
+                await message.reply(
+                    audioMedia,
+                    undefined,
+                    {
+                        sendAudioAsVoice: false
+                    }
+                );
+
+                console.log('TIKTOK AUDIO SENT');
+            }
         }
 
     } catch (error) {
@@ -130,14 +145,12 @@ async function handleTikTok(message, url, client) {
     } finally {
         // Hapus file sementara
         try {
-            if (videoPath && fs.existsSync(videoPath)) {
-                fs.unlinkSync(videoPath);
-                console.log('TIKTOK VIDEO DELETED');
-            }
-
-            if (audioPath && fs.existsSync(audioPath)) {
-                fs.unlinkSync(audioPath);
-                console.log('TIKTOK AUDIO DELETED');
+            if (downloadDir && fs.existsSync(downloadDir)) {
+                for (const fileName of fs.readdirSync(downloadDir)) {
+                    fs.unlinkSync(path.join(downloadDir, fileName));
+                }
+                fs.rmdirSync(downloadDir);
+                console.log('TIKTOK TEMP FILES DELETED');
             }
         } catch (cleanupError) {
             console.error(
