@@ -1,105 +1,77 @@
-# LRV ４ちゃん
+LRV ４ちゃん
 
-**A multifunctional WhatsApp bot built with Node.js.**
+A chaotic WhatsApp bot packed with useful stuff, dumb ideas, and way too many features.
 
-LRV BOT is a WhatsApp automation project designed to provide useful tools, entertainment, and AI-powered assistance in one place.
+LRV ４ちゃん adalah bot WhatsApp multifungsi yang dibangun menggunakan Node.js. Awalnya cuma proyek iseng, terus keterusan sampai jadi kumpulan fitur absurd yang ternyata kepake juga.
 
-## 🗿 Features
+Mau download media? Bisa. Cari gambar Danbooru? Bisa. Main game receh? Bisa. Nyari lagu YouTube? Bisa. Nanya AI? Bisa juga.
 
-- 🎮 **Games:** Number guessing, Rock Paper Scissors, and more.
-- 🎵 **YouTube:** Search and play audio directly through WhatsApp.
-- 📥 **Media Downloader:** TikTok, Instagram, Pinterest, and other supported platforms.
-- 🎨 **Pixiv:** Search and send illustrations. NovelAI works are allowed,
-  while gore and configured disturbing tags stay filtered independently of `/nsfw`.
-- 🔞 **e621:** Search explicit-rated posts with `/r34 [tag]`; `/nsfw on` is
-  required. Furry-tagged posts and disturbing/AI-tagged posts are filtered out.
-- 🖼️ **Sticker Maker:** Convert images into stickers with `/s`; use `/s -f` to keep the full image, or send a video with `/s` for a 6-second animated sticker.
-- 🎶 **AI Assistant:** AI-powered responses using Groq.
-- 📌 **Utilities:** Date information, ping, and other useful commands.
+Singkatnya: kalau ada ide aneh, kemungkinan besar udah ditambahin ke sini.
 
-## 🛠️ Tech Stack
+🗿 Features
+🎮 Games
 
-- [Node.js](https://nodejs.org/)
-- [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js)
-- [Groq](https://groq.com/)
-- [FFmpeg](https://ffmpeg.org/)
-- [Sharp](https://sharp.pixelplumbing.com/)
+Main game langsung dari WhatsApp. Tebak angka, batu-gunting-kertas, dan beberapa cara lain buat buang waktu secara produktif.
 
-## 📋 Requirements
+🎵 YouTube Tools
 
-- Node.js
-- npm
-- WhatsApp account
-- API keys for features that require them
+Cari video atau kirim audio YouTube tanpa ribet pindah aplikasi.
 
-##  Installation
+📥 Media Downloader
 
-1. Clone this repository:
+Download konten dari TikTok, Instagram, Pinterest, dan platform lain yang didukung.
 
-   ```bash
-   git clone YOUR_REPOSITORY_URL
-   ```
+🎨 Danbooru Search
 
-2. Open the project folder:
+Cari dan kirim ilustrasi dari Danbooru langsung lewat chat. Konten yang mengandung tag mengganggu atau diblokir tetap akan difilter.
 
-   ```bash
-   cd wa-ai-bot
-   ```
+🖼️ Sticker Maker
 
-3. Install dependencies:
+Ubah gambar jadi stiker dengan /s.
 
-   ```bash
-   npm install
-   ```
+/s → stiker biasa
+/s -f → tanpa crop
+Kirim video + /s → stiker animasi
+🤖 AI Assistant
 
-4. Configure the required environment variables in a `.env` file.
+Didukung model AI melalui Groq untuk membantu menjawab pertanyaan, memberikan informasi, atau sekadar diajak ngobrol pas jam 3 pagi.
 
-   Pixiv ugoira can be converted and sent as MP4 by enabling:
+📌 Utilities
 
-   ```env
-   PIXIV_SEND_VIDEO=true
-   PIXIV_MAX_VIDEO_MB=16
-   ```
+Kumpulan fitur kecil yang ternyata sering dipakai. Ping, informasi tanggal, dan berbagai perintah praktis lainnya.
 
-   Set `PIXIV_SEND_VIDEO=false` to disable Pixiv video delivery. Ugoira
-   conversion uses the included `ffmpeg-static` dependency.
-   AI/NovelAI works are available without changing `/nsfw`; `/nsfw` only
-   controls R-18 visibility, while R-18G and blocked tags remain filtered.
+🛠️ Built With
+Node.js
+whatsapp-web.js
+Groq
+FFmpeg
+Sharp
+📋 Requirements
+Node.js
+npm
+Akun WhatsApp
+API Key yang diperlukan untuk fitur tertentu
+⚡ Installation
+Shell
+git clone YOUR_REPOSITORY_URL
+cd wa-ai-bot
+npm install
 
-   e621 requests retry DNS through Cloudflare DNS-over-HTTPS when the
-   network's DNS fails. The default User-Agent identifies this project;
-   you can set `E621_USER_AGENT` to include your e621 username as requested
-   by the API guidelines. You can set `RULE34_DOH_URL` to another trusted
-   HTTPS DNS-over-HTTPS resolver. If the network also blocks that resolver,
-   configure a trusted HTTP/HTTPS proxy for these requests:
+Buat file .env, isi konfigurasi yang diperlukan, lalu jalankan:
 
-   ```env
-   RULE34_PROXY_URL=http://127.0.0.1:8080
-   ```
+Shell
+node index.js
 
-   Replace the example with a proxy you control or trust. TLS certificate
-   verification remains enabled; public/untrusted proxies are not recommended.
-   If `/r34` reports an expired TLS certificate, check the server clock and
-   try a different network or a trusted proxy; do not disable TLS verification.
+Scan QR code, tunggu WhatsApp terhubung, selesai.
 
-5. Start the bot:
+⚠️ Disclaimer
 
-   ```bash
-   node index.js
-   ```
+Bot ini dibuat untuk tujuan pembelajaran, eksperimen, dan penggunaan pribadi. Jangan dipakai buat hal aneh-aneh yang bikin akun WhatsApp lu kena suspend. Kalau tetep maksa, itu urusan lu sendiri.
 
-## ⚠️ Disclaimer
+👨‍💻 Developer
 
-This project is intended for educational and personal use. Use responsibly and comply with WhatsApp's terms of service.
+LRV Squad
 
-## 👨‍💻 Developer
+Gen 1 LRV BOT · 2023-2026
 
-**LRV Squad**
-
-*Gen 1 LRV BOT · 2023-2026*
-
----
-
-<p align="center">
-  Made with Node.js and a questionable amount of debugging.
-</p>
+Built with Node.js, caffeine, bad decisions, and an unhealthy amount of debugging.
