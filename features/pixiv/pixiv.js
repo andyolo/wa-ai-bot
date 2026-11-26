@@ -21,7 +21,7 @@ const UA =
     'Chrome/154.0.0.0 Safari/537.36';
 
 // Izinkan konten R-18?
-// Nilai ini bisa diubah SAAT BOT JALAN lewat /nsfw on|off,
+// Nilai ini bisa diubah SAAT BOT JALAN lewat >nsfw on|off,
 // dan otomatis disimpan ke .env supaya tahan restart.
 // Makanya pakai 'let', bukan 'const'.
 let allowR18 =
@@ -184,7 +184,7 @@ function persistR18(value) {
     }
 }
 
-// Dipanggil dari index.js saat /nsfw on|off
+// Dipanggil dari index.js saat >nsfw on|off
 function setR18(enabled) {
 
     allowR18 = Boolean(enabled);
@@ -843,9 +843,9 @@ async function handlePixiv(message, input, client) {
             await message.reply(
                 '❌ Masukkan kata kunci atau link Pixiv woy.\n\n' +
                 'Contoh:\n' +
-                '/pixiv kucing\n' +
-                '/pixiv hatsune miku\n' +
-                '/pixiv https://www.pixiv.net/artworks/123456'
+                '>pixiv kucing\n' +
+                '>pixiv hatsune miku\n' +
+                '>pixiv https://www.pixiv.net/artworks/123456'
             );
 
             return;
@@ -1055,7 +1055,7 @@ async function handlePixiv(message, input, client) {
         if (!allowR18 && detail.xRestrict === 1) {
             await message.reply(
                 '🔞 Karya ini R-18.\n' +
-                'Ketik /nsfw on kalau memang mau ditampilkan.'
+                'Ketik >nsfw on kalau memang mau ditampilkan.'
             );
             return;
         }

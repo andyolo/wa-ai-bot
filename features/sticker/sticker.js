@@ -109,7 +109,7 @@ async function handleSticker(message, args = []) {
         if (!sourceMessage.hasMedia) {
             await replyInCommandChat(
                 message,
-                'Kirim foto/video bersama /s atau balas foto/video dengan /s. Gunakan /s -f agar foto tidak dipotong.'
+                'Kirim foto/video bersama >s atau balas foto/video dengan >s. Gunakan >s -f agar foto tidak dipotong.'
             );
             return;
         }

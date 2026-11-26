@@ -187,14 +187,14 @@ function normalizeSearchTags(query) {
     if (requestedTags.length > 1) {
         throw new Error(
             'API Danbooru tanpa login membatasi pencarian menjadi satu tag. ' +
-            'Gunakan satu tag karakter, misalnya /r34 alisa_miklova_kuze.'
+            'Gunakan satu tag karakter, misalnya >r34 alisa_miklova_kuze.'
         );
     }
 
     const requestedTag = requestedTags[0];
     if (requestedTag && requestedTag.startsWith('-')) {
         throw new Error(
-            'Masukkan satu tag positif tanpa tanda minus, misalnya /r34 blue_hair.'
+            'Masukkan satu tag positif tanpa tanda minus, misalnya >r34 blue_hair.'
         );
     }
     if (requestedTag && BLOCKED_TAGS.has(requestedTag)) {
@@ -778,7 +778,7 @@ async function fetchImage(post) {
 
 async function execute(message, args = []) {
     if (!getR18()) {
-        await message.reply('R34 lagi mati jir. Aktifin dulu pakai /nsfw on.');
+        await message.reply('R34 lagi mati jir. Aktifin dulu pakai >nsfw on.');
         return;
     }
 
@@ -789,7 +789,7 @@ async function execute(message, args = []) {
         searchUrl = buildSearchUrl(query);
     } catch (error) {
         await message.reply(
-            `Pakai satu tag aja jir, contohnya /r34 ${query.includes('_') ? 'hakurei_reimu' : 'blue_hair'}.`
+            `Pakai satu tag aja jir, contohnya >r34 ${query.includes('_') ? 'hakurei_reimu' : 'blue_hair'}.`
         );
         return;
     }

@@ -5,7 +5,7 @@ const execFileAsync = promisify(execFile);
 
 
 // ==================================================
-// /ping - CEK LATENSI & KONDISI BOT
+// >ping - CEK LATENSI & KONDISI BOT
 //
 // Tidak pakai npm package tambahan. Semuanya pakai
 // yang sudah ada:

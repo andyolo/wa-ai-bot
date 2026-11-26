@@ -2,7 +2,7 @@
 // PENCARI LIRIK - sumber: lrclib.net
 //
 // Kenapa lrclib, bukan AI?
-//   AI (Groq) mengarang lirik dari ingatan model:
+//   AI mengarang lirik dari ingatan model:
 //   sering ngawur, kepotong, atau menolak karena
 //   hak cipta. lrclib itu DATABASE lirik asli.
 //

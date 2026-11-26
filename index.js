@@ -1,4 +1,6 @@
-require('dotenv').config();
+﻿require('dotenv').config();
+
+const COMMAND_PREFIX = '>';
 
 const {
     Client,
@@ -7,7 +9,7 @@ const {
 } = require('whatsapp-web.js');
 
 const qrcode = require('qrcode-terminal');
-const Groq = require('groq-sdk');
+const { chat: milaChat } = require('./features/persona');
 const ytDlp = require('yt-dlp-exec');
 const ffmpegPath = require('ffmpeg-static');
 const path = require('path');
@@ -59,10 +61,6 @@ const {
     botReact
 } = require('./reactions');
 
-const groq = process.env.GROQ_API_KEY
-    ? new Groq({ apiKey: process.env.GROQ_API_KEY })
-    : null;
-
 const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: './.wwebjs_auth'
@@ -81,6 +79,14 @@ const client = new Client({
 const games = new Map();
 const scores = new Map();
 const playSessions = new Map();
+const milaConversations = new Map();
+const milaReplyTargets = new Map();
+
+const MILA_CONVERSATION_TTL_MS = 30 * 60 * 1000;
+const MILA_REPLY_TTL_MS = 24 * 60 * 60 * 1000;
+const MILA_MAX_REPLY_TARGETS = 2000;
+const MILA_MAX_CONVERSATIONS = 500;
+const MILA_REPLY_STATE_PATH = path.join(__dirname, 'data', 'mila-replies.json');
 
 const quotes = [
     'Hitam bukan berarti ambatukam.',
@@ -131,6 +137,255 @@ const facts = [
 function getPlayerKey(message) {
     return message.from + ':' + (message.author || message.from);
 }
+
+function getCallerName(contact, message) {
+    const names = [
+        message?._data?.notifyName,
+        message?._data?.pushName,
+        contact?.name,
+        contact?.shortName,
+        contact?.pushname
+    ].filter((name) => typeof name === 'string' && name.trim());
+
+    for (const name of names) {
+        const match = name.trim().match(
+            /^\+?[\d\s().-]{5,}\s*[-–—]\s*(.+?)\s*$/
+        );
+
+        if (match) {
+            return match[1].trim();
+        }
+    }
+
+    return names.find((name) => !/^\+?[\d\s().-]+$/.test(name.trim()))
+        ?.trim() || '';
+}
+
+function getMilaReplyKey(messageId) {
+    if (!messageId) {
+        return '';
+    }
+
+    const serialized = typeof messageId === 'string'
+        ? messageId
+        : messageId._serialized;
+    const serializedMatch = serialized?.match(
+        /^(true|false)_(.+?@[^_]+)_([^_]+)(?:_.*)?$/
+    );
+
+    if (serializedMatch) {
+        return `${serializedMatch[1]}_${serializedMatch[2]}_${serializedMatch[3]}`;
+    }
+
+    const remote =
+        typeof messageId.remote === 'object'
+            ? messageId.remote?._serialized
+            : messageId.remote;
+
+    if (remote && messageId.id) {
+        const fromMe = messageId.fromMe === true ||
+            messageId.fromMe === 'true';
+        return `${fromMe}_${remote}_${messageId.id}`;
+    }
+
+    return '';
+}
+
+function getMilaReplyMessageIds(messageId) {
+    const ids = new Set();
+    const addRawId = (id) => {
+        if (typeof id !== 'string' || !id) {
+            return;
+        }
+
+        ids.add(id);
+        const participantSuffix = id.match(
+            /^(.+)_([^_@]+@(?:lid|c\.us|s\.whatsapp\.net))$/i
+        );
+        if (participantSuffix) {
+            ids.add(participantSuffix[1]);
+        }
+    };
+    const serialized = typeof messageId === 'string'
+        ? messageId
+        : messageId?._serialized;
+    const match = serialized?.match(
+        /^(true|false)_(.+?@[^_]+)_([^_]+)(?:_.*)?$/
+    );
+
+    if (match) {
+        ids.add(`${match[1]}_${match[2]}_${match[3]}`);
+        addRawId(match[3]);
+    } else if (typeof messageId === 'object' && messageId?.id) {
+        addRawId(String(messageId.id));
+    } else if (typeof messageId === 'string' && messageId) {
+        addRawId(messageId);
+    }
+
+    return [...ids];
+}
+
+function getQuotedMilaReplyTarget(message) {
+    const data = message?._data || {};
+    const contextInfo = data.contextInfo || data.msgContextInfo || {};
+    const candidates = [
+        data.quotedMsg?.id,
+        data.quotedMsgId,
+        data.quotedStanzaID,
+        data.quotedStanzaId,
+        contextInfo.stanzaId,
+        contextInfo.quotedStanzaID,
+        contextInfo.quotedStanzaId
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+        const keys = new Set([
+            getMilaReplyKey(candidate),
+            ...getMilaReplyMessageIds(candidate)
+        ]);
+
+        for (const key of keys) {
+            const target = milaReplyTargets.get(key);
+            if (target) {
+                return { key, target };
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function isReplyToRecentMila(message, quotedMessage) {
+    if (!quotedMessage?.id?.fromMe) {
+        return false;
+    }
+
+    const conversation = milaConversations.get(getPlayerKey(message));
+    if (
+        !conversation ||
+        Date.now() - conversation.updatedAt > MILA_CONVERSATION_TTL_MS
+    ) {
+        return false;
+    }
+
+    const quotedBody = String(quotedMessage.body || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const lastReply = String(conversation.lastReplyText || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    return !quotedBody ||
+        quotedBody === lastReply ||
+        lastReply.startsWith(quotedBody) ||
+        quotedBody.startsWith(lastReply);
+}
+
+function rememberMilaReply(message, sentMessage) {
+    const messageIds = getMilaReplyMessageIds(sentMessage?.id);
+    if (!messageIds.length) {
+        return;
+    }
+
+    const now = Date.now();
+    for (const [id, target] of milaReplyTargets) {
+        if (target.expiresAt <= now) {
+            milaReplyTargets.delete(id);
+        }
+    }
+
+    const target = {
+        chatId: message.from,
+        expiresAt: now + MILA_REPLY_TTL_MS
+    };
+    for (const id of messageIds) {
+        milaReplyTargets.set(id, target);
+    }
+
+    while (milaReplyTargets.size > MILA_MAX_REPLY_TARGETS) {
+        milaReplyTargets.delete(milaReplyTargets.keys().next().value);
+    }
+
+    persistMilaReplyTargets();
+}
+
+function loadMilaReplyTargets() {
+    let rawState;
+    try {
+        rawState = fs.readFileSync(MILA_REPLY_STATE_PATH, 'utf8');
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            return;
+        }
+
+        throw new Error(
+            `Gagal membaca data reply Mila: ${error.message}`,
+            { cause: error }
+        );
+    }
+
+    let entries;
+    try {
+        entries = JSON.parse(rawState);
+    } catch (error) {
+        throw new Error(
+            `Data reply Mila bukan JSON yang valid: ${error.message}`,
+            { cause: error }
+        );
+    }
+
+    if (!Array.isArray(entries)) {
+        throw new Error('Data reply Mila harus berupa daftar pesan.');
+    }
+
+    const now = Date.now();
+    for (const entry of entries) {
+        if (
+            typeof entry?.id === 'string' &&
+            typeof entry.chatId === 'string' &&
+            Number.isFinite(entry.expiresAt) &&
+            entry.expiresAt > now
+        ) {
+            milaReplyTargets.set(entry.id, {
+                chatId: entry.chatId,
+                expiresAt: entry.expiresAt
+            });
+        }
+    }
+
+    while (milaReplyTargets.size > MILA_MAX_REPLY_TARGETS) {
+        milaReplyTargets.delete(milaReplyTargets.keys().next().value);
+    }
+}
+
+function persistMilaReplyTargets() {
+    const entries = [...milaReplyTargets].map(([id, target]) => ({
+        id,
+        chatId: target.chatId,
+        expiresAt: target.expiresAt
+    }));
+    const temporaryPath = `${MILA_REPLY_STATE_PATH}.${process.pid}.tmp`;
+
+    try {
+        fs.mkdirSync(path.dirname(MILA_REPLY_STATE_PATH), { recursive: true });
+        fs.writeFileSync(temporaryPath, JSON.stringify(entries), 'utf8');
+        fs.renameSync(temporaryPath, MILA_REPLY_STATE_PATH);
+    } catch (error) {
+        console.error(
+            'MILA REPLY STATE SAVE ERROR:',
+            error instanceof Error ? error.message : String(error)
+        );
+        try {
+            fs.unlinkSync(temporaryPath);
+        } catch (cleanupError) {
+            if (cleanupError.code !== 'ENOENT') {
+                console.error('MILA REPLY STATE CLEANUP ERROR:', cleanupError.message);
+            }
+        }
+    }
+}
+
+loadMilaReplyTargets();
 
 function addScore(playerKey, points) {
     scores.set(
@@ -339,15 +594,118 @@ async function convertToVoiceNote(inputPath) {
     return outputPath;
 }
 
-async function botReply(message, text) {
-    await message.reply(text);
+async function botReply(message, text, options = {}) {
+    let sentMessage;
 
-    try {
-        await message.react('☁️');
-    } catch (error) {
+    if (options.mentions?.length) {
+        try {
+            sentMessage = await client.sendMessage(
+                message.from,
+                text,
+                {
+                    mentions: options.mentions,
+                    quotedMessageId: message.id._serialized
+                }
+            );
+        } catch (error) {
+            console.error('MENTION SEND ERROR:', error.message);
+            sentMessage = await message.reply(text.replace(/^@\S+\s*/, ''));
+        }
+    } else {
+        sentMessage = await message.reply(text);
+    }
+
+    message.react('☁️').catch((error) => {
         console.error(
             'REACTION ERROR:',
-            error.message
+            error instanceof Error ? error.message : String(error)
+        );
+    });
+
+    return sentMessage;
+}
+
+async function handleMilaMessage(message, question, quotedContext = '') {
+    const conversationKey = getPlayerKey(message);
+    const now = Date.now();
+    const previousConversation = milaConversations.get(conversationKey);
+    const activeHistory = previousConversation &&
+        now - previousConversation.updatedAt <= MILA_CONVERSATION_TTL_MS
+        ? previousConversation.messages
+        : [];
+    const history = activeHistory.length || !quotedContext
+        ? activeHistory
+        : [{ role: 'assistant', content: quotedContext }];
+    let answer;
+
+    try {
+        const startedAt = Date.now();
+        answer = await milaChat(question, history);
+        console.log(`MILA RESPONSE READY: ${Date.now() - startedAt} ms`);
+    } catch (error) {
+        console.error(
+            'MILA REQUEST ERROR:',
+            error instanceof Error ? error.message : String(error)
+        );
+        await botReply(
+            message,
+            'Maaf, AI sedang tidak bisa menjawab. Coba lagi sebentar, ya.'
+        );
+        return;
+    }
+
+    let callerName = '';
+    try {
+        callerName = getCallerName(await message.getContact(), message);
+    } catch (error) {
+        console.warn(
+            'MILA CONTACT NAME UNAVAILABLE:',
+            error instanceof Error ? error.message : String(error)
+        );
+    }
+
+    const cleanAnswer = answer
+        .replace(/【[^】]*】/g, '')
+        .replace(/\*\*|__|~~|```/g, '')
+        .replace(/^#+\s*/gm, '')
+        .replace(/[\u00A0\u202F]/g, ' ')
+        .replace(/[\u2011\u2013\u2014]/g, '-')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+    const finalAnswer = cleanAnswer || 'Maaf, jawabanku belum siap. Coba tanyakan lagi, ya.';
+    const replyText = callerName
+        ? `${callerName.charAt(0).toLocaleUpperCase('id-ID')}${callerName.slice(1)}, ${finalAnswer}`
+        : finalAnswer;
+
+    try {
+        const sentMessage = await botReply(message, replyText);
+        const messages = [
+            ...history,
+            { role: 'user', content: question },
+            { role: 'assistant', content: answer }
+        ].slice(-12);
+        const savedAt = Date.now();
+
+        for (const [key, conversation] of milaConversations) {
+            if (savedAt - conversation.updatedAt > MILA_CONVERSATION_TTL_MS) {
+                milaConversations.delete(key);
+            }
+        }
+
+        milaConversations.delete(conversationKey);
+        milaConversations.set(conversationKey, {
+            messages,
+            lastReplyText: replyText,
+            updatedAt: savedAt
+        });
+        while (milaConversations.size > MILA_MAX_CONVERSATIONS) {
+            milaConversations.delete(milaConversations.keys().next().value);
+        }
+        rememberMilaReply(message, sentMessage);
+    } catch (error) {
+        console.error(
+            'MILA SEND ERROR:',
+            error instanceof Error ? error.message : String(error)
         );
     }
 }
@@ -475,6 +833,73 @@ client.on('disconnected', (reason) => {
     );
 });
 
+client.on('message', async (message) => {
+    const body = String(message.body || '').trim();
+    if (!body || body.startsWith(COMMAND_PREFIX)) {
+        return;
+    }
+
+    try {
+        let matchedReply = getQuotedMilaReplyTarget(message);
+        const rawQuotedMessage = message?._data?.quotedMsg;
+        let quotedMessage = rawQuotedMessage
+            ? {
+                id: rawQuotedMessage.id,
+                body: rawQuotedMessage.body || rawQuotedMessage.caption || ''
+            }
+            : undefined;
+
+        if (!matchedReply && (message.hasQuotedMsg || message?._data?.quotedMsg)) {
+            try {
+                quotedMessage = await getQuotedMessage(message);
+            } catch (error) {
+                console.warn(
+                    'MILA QUOTE RESOLUTION FALLBACK:',
+                    error instanceof Error ? error.message : String(error)
+                );
+            }
+
+            if (quotedMessage) {
+                const keys = getMilaReplyMessageIds(quotedMessage.id);
+                for (const key of keys) {
+                    const target = milaReplyTargets.get(key);
+                    if (target) {
+                        matchedReply = { key, target };
+                        break;
+                    }
+                }
+            }
+        }
+
+        const exactMatch = matchedReply?.target &&
+            matchedReply.target.expiresAt > Date.now() &&
+            matchedReply.target.chatId === message.from;
+        const recentMilaReply = !exactMatch &&
+            isReplyToRecentMila(message, quotedMessage);
+
+        if (exactMatch || recentMilaReply) {
+            console.log('MILA REPLY MATCHED: incoming reply targets a Mila response.');
+            const quotedContext = String(
+                quotedMessage?.body ||
+                rawQuotedMessage?.body ||
+                rawQuotedMessage?.caption ||
+                ''
+            ).trim();
+            await handleMilaMessage(message, body, quotedContext);
+            return;
+        }
+
+        if (matchedReply) {
+            milaReplyTargets.delete(matchedReply.key);
+        }
+    } catch (error) {
+        console.error(
+            'MILA REPLY CHECK ERROR:',
+            error instanceof Error ? error.message : String(error)
+        );
+    }
+});
+
 client.on(
     'message_create',
     async (message) => {
@@ -500,7 +925,7 @@ client.on(
 
         if (
             message.fromMe &&
-            !bodyBersih.startsWith('/') &&
+            !bodyBersih.startsWith(COMMAND_PREFIX) &&
             !/^[1-5]$/.test(bodyBersih)
         ) {
             return;
@@ -511,7 +936,7 @@ client.on(
 
         const plainInput = bodyBersih;
 
-        if (plainInput.startsWith('/')) {
+        if (plainInput.startsWith(COMMAND_PREFIX)) {
             await botReact(message);
         }
 
@@ -540,7 +965,7 @@ client.on(
                 await botReply(
                     message,
                     'Daftar lagunya sudah kedaluwarsa.\n' +
-                    'Ketik /play <judul> lagi ya.'
+                    'Ketik >play <judul> lagi ya.'
                 );
                 return;
             }
@@ -721,18 +1146,18 @@ try {
 return;
 }
 
-        if (!plainInput.startsWith('/')) {
+        if (!plainInput.startsWith(COMMAND_PREFIX)) {
             return;
         }
 
         const input =
-            plainInput.slice(1).trim();
+            plainInput.slice(COMMAND_PREFIX.length).trim();
 
         if (!input) {
 
             await botReply(
                 message,
-                'Tulis perintah. Ketik /menu untuk melihat menu.'
+                'Tulis perintah. Ketik >menu untuk melihat menu.'
             );
 
             return;
@@ -769,7 +1194,7 @@ switch (command) {
             if (!message.hasQuotedMsg) {
                 await botReply(
                     message,
-                    'Reply pesan yang mau dihapus, lalu ketik /d.'
+                    'Reply pesan yang mau dihapus, lalu ketik >d.'
                 );
                 return;
             }
@@ -832,7 +1257,7 @@ switch (command) {
 
         if (!namaTempat) {
             await balasPolusi(
-                'Gunakan lah jir kayak: /polusi Tukka\nContoh: /polusi Sibolga kek'
+                'Gunakan lah jir kayak: >polusi Tukka\nContoh: >polusi Sibolga kek'
             );
             return;
         }
@@ -909,55 +1334,54 @@ switch (command) {
 `╭━━━「 Gen 1 LRV BOT 」━━━╮
 ┃
 ┃ FITUR UNGGULAN
-┃ /polusi 
-┃ /ihsg
+┃ >polusi 
+┃ >ihsg
 ┃
 ┃
 ┃
 ┃ GAME
-┃ /tebak
-┃ /jawab angka
-┃ /stop
-┃ /rps
-┃ /skor
-┃ /quote
-┃ /fakta
+┃ >tebak
+┃ >jawab angka
+┃ >stop
+┃ >rps
+┃ >skor
+┃ >quote
+┃ >fakta
 ┃
 ┃ INFORMASI
-┃ /tanggal
-┃ /natal
-┃ /ping
-┃ /Update
+┃ >tanggal
+┃ >natal
+┃ >ping
+┃ >Update
 ┃
 ┃
 ┃ FITUR PRIORITAS / UPDATE
-┃ /play
-┃ /tt
-┃ /ig
-┃ /pin
-┃ /pixiv
-┃ /hd
-┃ /nsfw
-┃ /s
-┃ /d --- /delete
+┃ >play
+┃ >tt
+┃ >ig
+┃ >pin
+┃ >pixiv
+┃ >hd
+┃ >nsfw
+┃ >s
+┃ >d --- >delete
 ┃
 ┃ FITUR DALAM TAHAP PERKEMBANGAN
-┃ /owner
-┃ /polusi
-┃ /r33+1
+┃ >owner
+┃ >polusi
+┃ >r33+1
 ┃
 ┃ KHUSUS OWNER/ANGGOTA LRV SQUAD
-┃ /owner
+┃ >owner
 ┃
-┃ ASISTEN AI ZOIX
-┃ /ai
+┃ ASISTEN AI MILA ^^ [BETA]
+┃ >ai
 ┃
 ╰━━━━━━━━━━━━━━━━━━╯
 
 ╰━━━━━━━━━━━━━━━━━━╯
 
 > © 2026 Lrv Squad 3th
-> Website: https://andyolo.github.io/lrv-website/
 > GitHub: https://github.com/andyolo/wa-ai-bot`;
 
         await botReply(message, menuText);
@@ -970,7 +1394,7 @@ switch (command) {
             `UPDATE LRV BOT
  
  1.*Fitur Peta cuaca akan dirilis bulan depan atau bahkan dlam jangkau waktu dekat*.
- 2.*Fitur tidak akan ada batas limit sebelum website LRV sudah optimal*.
+ 2.*Fitur replay untuk semua fitur akan di tunda sementara waktu*.
  3.*Event Christmas 2026 akan dimulai pada 24 Desember 2026 sampai 1 Januari 2027*.
  4.*LRV BOT Gen 2 akan rilis pada 1 Januari 2027 dengan fitur unggulan gratis*.
  5.*Saat Januari 2027, LRV akan memiliki website, server, dan domain web*.`
@@ -1010,7 +1434,7 @@ switch (command) {
             await botReply(
                 message,
                 'Masukkan link TikTok dengan benar plis.\n' +
-                'Contoh: /tt https://www.tiktok.com/@user/video/123'
+                'Contoh: >tt https://www.tiktok.com/@user/video/123'
             );
             return;
         }
@@ -1026,7 +1450,7 @@ switch (command) {
         await botReply(
             message,
             'Masukkan link Instagram.\n' +
-            'Contoh: /ig https://www.instagram.com/reel/...'
+            'Contoh: >ig https://www.instagram.com/reel/...'
         );
         return;
     }
@@ -1076,8 +1500,8 @@ case 'nsfw': {
             ' Status NSFW sekarang: ' +
             (getR18() ? 'AKTIF' : 'MATI') + '\n\n' +
             'Cara pakai:\n' +
-            '/nsfw on  -> R-18 ikut muncul di /pixiv\n' +
-            '/nsfw off -> hanya konten umum\n\n'
+            '>nsfw on  -> R-18 ikut muncul di >pixiv\n' +
+            '>nsfw off -> hanya konten umum\n\n'
             
         );
         return;
@@ -1093,7 +1517,7 @@ case 'nsfw': {
             message,
             aktif
                 ? ' NSFW sudah aktif dari tadi bro.\n' +
-                  `Peluangnya di /pixiv: ${peluang}%\n` 
+                  `Peluangnya di >pixiv: ${peluang}%\n` 
                   
                 : ' NSFW masih off.\n' 
                   
@@ -1219,7 +1643,7 @@ case 'tanggal': {
                         await botReply(
                             message,
                             'Tulis judul yang mau dicari.\n' +
-                            'Contoh: /play golden hour'
+                            'Contoh: >play golden hour'
                         );
 
                         return;
@@ -1323,7 +1747,7 @@ case 'tanggal': {
 
                         await botReply(
                             message,
-                            'Kamu masih punya permainan aktif. Ketik /jawab angka atau /stop.'
+                            'Kamu masih punya permainan aktif. Ketik >jawab angka atau >stop.'
                         );
 
                         return;
@@ -1345,7 +1769,7 @@ case 'tanggal': {
                         message,
                         'Aku sudah memilih angka 1-20.\n' +
                         'Kamu punya 5 kesempatan.\n\n' +
-                        'Ketik /jawab angka.'
+                        'Ketik >jawab angka.'
                     );
 
                     return;
@@ -1362,7 +1786,7 @@ case 'tanggal': {
 
                         await botReply(
                             message,
-                            'Belum ada permainan. Ketik /tebak untuk mulai.'
+                            'Belum ada permainan. Ketik >tebak untuk mulai.'
                         );
 
                         return;
@@ -1381,7 +1805,7 @@ case 'tanggal': {
 
                         await botReply(
                             message,
-                            'Masukkan angka 1-20. Contoh: /jawab 12'
+                            'Masukkan angka 1-20. Contoh: >jawab 12'
                         );
 
                         return;
@@ -1490,7 +1914,7 @@ case 'tanggal': {
 
                         await botReply(
                             message,
-                            'Pilih: /rps batu, /rps gunting, atau /rps kertas.'
+                            'Pilih: >rps batu, >rps gunting, atau >rps kertas.'
                         );
 
                         return;
@@ -1579,143 +2003,14 @@ case 'tanggal': {
 
                         await botReply(
                             message,
-                            'Tulis pertanyaan setelah /ai.\n' +
-                            'Contoh: /ai siapa presiden Indonesia saat ini?'
+                            'Tulis pertanyaan setelah >ai.\n' +
+                            'Contoh: >ai siapa presiden Indonesia saat ini?'
                         );
 
                         return;
                     }
 
-                    if (!groq) {
-                        await botReply(
-                            message,
-                            'Fitur AI belum dikonfigurasi. Tambahkan GROQ_API_KEY ke file .env.'
-                        );
-                        return;
-                    }
-
-                    console.log(
-                        'AI REQUEST:',
-                        question
-                    );
-
-                    const response =
-                        await groq.chat.completions.create({
-
-                            model:
-                                'openai/gpt-oss-120b',
-
-                            messages: [
-                                {
-                                    role: 'system',
-                                    content:
-                                        'Kamu adalah AI assistant di bot WhatsApp. ' +
-                                        'Jawab dalam bahasa Indonesia. ' +
-                                        'Jawaban singkat, jelas, natural, dan langsung ke inti. ' +
-                                        'Jangan mengarang fakta atau menyatakan informasi terbaru sebagai sesuatu yang sudah diverifikasi. ' +
-                                        'Untuk tanggal, waktu, dan hitungan hari, gunakan perhitungan sistem jika tersedia. ' +
-                                        'Gunakan teks biasa tanpa Markdown.'
-                                },
-                                {
-                                    role: 'user',
-                                    content: question
-                                }
-                            ],
-
-                            reasoning_effort:
-                                'low',
-
-                            max_completion_tokens:
-                                1000
-                        }, {
-                            timeout: 30000
-                        }).catch((error) => {
-                            console.error('AI REQUEST ERROR:', error);
-                            return null;
-                        });
-
-                    if (!response) {
-                        await botReply(
-                            message,
-                            'AI sedang gagal memproses pertanyaanmu. Coba lagi beberapa saat.'
-                        );
-                        return;
-                    }
-
-                    const responseContent =
-                        response.choices &&
-                        response.choices[0] &&
-                        response.choices[0].message &&
-                        response.choices[0].message.content;
-
-                    let answer = typeof responseContent === 'string'
-                        ? responseContent.trim()
-                        : '';
-
-                    if (!answer) {
-                        answer = 'AI tidak memberikan jawaban. Coba ulangi pertanyaanmu.';
-                    }
-
-                    answer = answer
-                        .replace(
-                            /【[^】]*】/g,
-                            ''
-                        )
-                        .replace(
-                            /\*\*/g,
-                            ''
-                        )
-                        .replace(
-                            /__/g,
-                            ''
-                        )
-                        .replace(
-                            /~~/g,
-                            ''
-                        )
-                        .replace(
-                            /```/g,
-                            ''
-                        )
-                        .replace(
-                            /^#+\s*/gm,
-                            ''
-                        )
-                        .replace(
-                            /\u00A0/g,
-                            ' '
-                        )
-                        .replace(
-                            /\u202F/g,
-                            ' '
-                        )
-                        .replace(
-                            /\u2011/g,
-                            '-'
-                        )
-                        .replace(
-                            /\u2013/g,
-                            '-'
-                        )
-                        .replace(
-                            /\u2014/g,
-                            '-'
-                        )
-                        .replace(
-                            /[ \t]+/g,
-                            ' '
-                        )
-                        .trim();
-
-                    console.log(
-                        'AI RESPONSE:',
-                        answer
-                    );
-
-                    await botReply(
-                        message,
-                        answer
-                    );
+                    await handleMilaMessage(message, question);
 
                     return;
                 }
@@ -1724,7 +2019,7 @@ case 'tanggal': {
 
                     await botReply(
                         message,
-                        'Perintah tidak dikenal. Ketik /menu untuk melihat menu.'
+                        'Perintah tidak dikenal. Ketik >menu untuk melihat menu.'
                     );
 
                     return;
@@ -1760,5 +2055,27 @@ case 'tanggal': {
 );
 
 client.initialize().catch((error) => {
-    console.error('BOT INITIALIZATION ERROR:', error);
+    const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+    if (/browser is already running/i.test(errorMessage)) {
+        console.error(
+            'BOT INITIALIZATION ERROR: Profil WhatsApp sedang dipakai oleh instance lain. ' +
+            'Jangan jalankan node index.js bersamaan dengan instance yang sudah aktif. ' +
+            'Untuk PM2, restart instance dengan `pm2 restart wa-bot`.'
+        );
+    } else {
+        console.error('BOT INITIALIZATION ERROR:', error);
+    }
+
+    return client.destroy()
+        .catch((cleanupError) => {
+            console.error(
+                'BOT INITIALIZATION CLEANUP ERROR:',
+                cleanupError
+            );
+        })
+        .finally(() => {
+            process.exitCode = 1;
+        });
 });

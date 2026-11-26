@@ -7,11 +7,11 @@ const esc = (s) => String(s).replace(/[&<>"']/g, c => ({
 
 function kategori(aqi) {
     if (aqi <= 50) return ['SEHAT', '#00ff66'];
-    if (aqi <= 100) return ['WASPADA', '#ffb804'];
+    if (aqi <= 100) return ['LUMAYAN', '#ffb804'];
     if (aqi <= 150) return ['TIDAK SEHAT*', '#ff7904'];
-    if (aqi <= 200) return ['TIDAK SEHAT', '#ff0000bb'];
-    if (aqi <= 300) return ['SANGAT TIDAK SEHAT', '#64217f'];
-    return ['BERBAHAYA', '#52202a'];
+    if (aqi <= 200) return ['TIDAK SEHAT LAH', '#ff0000bb'];
+    if (aqi <= 300) return ['GAK SEHAT KALI', '#64217f'];
+    return ['MATI KAU KAMPANG', '#52202a'];
 }
 
 async function json(url) {

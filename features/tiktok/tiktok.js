@@ -16,7 +16,7 @@ async function handleTikTok(message, url, client) {
     } catch {
         await message.reply(
             '❌ Link TikTok tidak valid.\n' +
-            'Contoh: /tt https://www.tiktok.com/@user/video/123'
+            'Contoh: >tt https://www.tiktok.com/@user/video/123'
         );
         return;
     }
@@ -38,7 +38,7 @@ async function handleTikTok(message, url, client) {
     }
 
     try {
-        await message.reply('⏳ SABAR JIR...');
+        await message.reply(' Ohh ...');
 
         console.log('TIKTOK URL:', url);
 
@@ -62,6 +62,8 @@ async function handleTikTok(message, url, client) {
                 `${outputPrefix}%(autonumber)s.%(ext)s`
             ),
             format: 'best[ext=mp4]/best',
+            recodeVideo: 'mp4',
+            noPlaylist: true,
             ffmpegLocation: ffmpegPath
         });
 
@@ -77,7 +79,7 @@ async function handleTikTok(message, url, client) {
 
         const { MessageMedia } = require('whatsapp-web.js');
         const imageExtensions = new Set(['.jpg', '.jpeg', '.png', '.webp']);
-        const videoExtensions = new Set(['.mp4', '.webm', '.mov', '.mkv']);
+        const videoExtensions = new Set(['.mp4']);
         const mediaToSend = mediaPaths.filter(mediaPath => {
             const extension = path.extname(mediaPath).toLowerCase();
             return imageExtensions.has(extension) || videoExtensions.has(extension);
@@ -88,6 +90,10 @@ async function handleTikTok(message, url, client) {
         }
 
         for (const mediaPath of mediaToSend) {
+            if (fs.statSync(mediaPath).size === 0) {
+                throw new Error(`File media TikTok kosong: ${mediaPath}`);
+            }
+
             const media = MessageMedia.fromFilePath(mediaPath);
 
             await message.reply(
@@ -119,19 +125,22 @@ async function handleTikTok(message, url, client) {
 
             console.log('TIKTOK AUDIO READY:', audioPath);
 
-            if (fs.existsSync(audioPath)) {
-                const audioMedia = MessageMedia.fromFilePath(audioPath);
-
-                await message.reply(
-                    audioMedia,
-                    undefined,
-                    {
-                        sendAudioAsVoice: false
-                    }
-                );
-
-                console.log('TIKTOK AUDIO SENT');
+            if (!fs.existsSync(audioPath) || fs.statSync(audioPath).size === 0) {
+                throw new Error('File audio TikTok tidak ditemukan atau kosong.');
             }
+
+            const audioMedia = MessageMedia.fromFilePath(audioPath);
+
+            await message.reply(
+                audioMedia,
+                undefined,
+                {
+                    sendAudioAsVoice: false,
+                    sendMediaAsDocument: false
+                }
+            );
+
+            console.log('TIKTOK AUDIO SENT');
         }
 
     } catch (error) {

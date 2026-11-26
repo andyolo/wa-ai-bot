@@ -403,8 +403,8 @@ async function handlePinterest(
             await message.reply(
                 '❌ Masukkan link atau kata kunci.\n\n' +
                 'Contoh:\n' +
-                '/pin kucing\n' +
-                '/pin minecraft house'
+                '>pin kucing\n' +
+                '>pin minecraft house'
             );
 
             return;

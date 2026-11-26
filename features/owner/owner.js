@@ -22,7 +22,7 @@ const FILE_BLOKIR = path.join(
     __dirname, '..', '..', 'data', 'blokir.json'
 );
 
-// Anti-spam nyala/mati (bisa diubah lewat /owner)
+// Anti-spam nyala/mati (bisa diubah lewat >owner)
 let spamAktif =
     String(process.env.SPAM_AKTIF || 'true')
         .toLowerCase() !== 'false';
@@ -39,7 +39,7 @@ const SPAM_JENDELA =
 const SPAM_TOLERANSI =
     parseInt(process.env.SPAM_TOLERANSI || '2', 10) || 2;
 
-// Cuma PERINTAH (yang diawali "/") yang dihitung?
+// Cuma PERINTAH (yang diawali ">") yang dihitung?
 //
 // Default: YA.
 //
@@ -247,7 +247,7 @@ async function cekSpam(message) {
 
         const adalahPerintah = String(message.body || '')
             .trim()
-            .startsWith('/');
+            .startsWith('>');
 
         if (!adalahPerintah) {
             return false;
@@ -537,8 +537,8 @@ async function handleOwner(message, perintah, args) {
                 await message.reply(
                     '❌ Nggak tau siapa yang mau dijadikan owner.\n\n' +
                     'Cara paling akurat: BALAS pesan orangnya, ' +
-                    'lalu ketik /owner tambah\n\n' +
-                    'Atau tulis nomornya: /owner tambah 6281234567890'
+                    'lalu ketik >owner tambah\n\n' +
+                    'Atau tulis nomornya: >owner tambah 6281234567890'
                 );
 
                 return;
@@ -583,16 +583,16 @@ async function handleOwner(message, perintah, args) {
         await message.reply(
             ' MENU OWNER JANGAN SENTUH BRO\n' +
             '\n' +
-            '/blokir\n' +
-            '/buka\n' +
-            '/buka all\n' +
-            '/vip LRV\n' +
-            '/vip Accepted\n' +
-            '/vip Kick\n' +
-            '/spam on\n' +
-            '/spam off\n' +
-            '/owner tambah <nomor>\n' +
-            '/owner hapus <nomor>\n' +
+            '>blokir\n' +
+            '>buka\n' +
+            '>buka all\n' +
+            '>vip LRV\n' +
+            '>vip Accepted\n' +
+            '>vip Kick\n' +
+            '>spam on\n' +
+            '>spam off\n' +
+            '>owner tambah <nomor>\n' +
+            '>owner hapus <nomor>\n' +
             '\n' +
             `Status anti-spam: ${spamAktif ? 'AKTIF' : 'MATI'}\n` +
             `Diblokir: ${daftarBlokir.size} orang\n` +
@@ -624,19 +624,19 @@ async function handleOwner(message, perintah, args) {
         await message.reply(
             `🚫 DAFTAR BLOKIR (${daftarBlokir.size})\n\n` +
             daftar +
-            '\n\nBuka dengan: /buka <nomor>'
+            '\n\nBuka dengan: >buka <nomor>'
         );
 
         return;
     }
 
     // ==================================================
-    // /buka -> buka blokir
+    // >buka -> buka blokir
     // ==================================================
 
     if (perintah === 'buka') {
 
-        // Gabung SEMUA kata, sama seperti /vip - nomor HP
+        // Gabung SEMUA kata, sama seperti >vip - nomor HP
         // sering ditulis dengan spasi / tanda hubung.
         const target = args.join(' ').trim();
 
@@ -644,8 +644,8 @@ async function handleOwner(message, perintah, args) {
 
             await message.reply(
                 'Tulis nomor yang mau dibuka.\n' +
-                'Contoh: /buka 6281234567890\n' +
-                'Atau: /buka all'
+                'Contoh: >buka 6281234567890\n' +
+                'Atau: >buka all'
             );
 
             return;
@@ -681,14 +681,14 @@ async function handleOwner(message, perintah, args) {
             dibuka > 0
                 ? `✅ ${dibuka} orang dibuka blokirnya.`
                 : `❌ Tidak ada yang cocok dengan "${target}".\n` +
-                  'Cek daftarnya pakai /blokir'
+                  'Cek daftarnya pakai >blokir'
         );
 
         return;
     }
 
     // ==================================================
-    // /vip -> orang yang dibebaskan dari cek spam
+    // >vip -> orang yang dibebaskan dari cek spam
     // ==================================================
 
     if (perintah === 'vip') {
@@ -697,7 +697,7 @@ async function handleOwner(message, perintah, args) {
 
         // Gabung SEMUA kata setelah "tambah" / "hapus".
         // Nomor HP sering ditulis dengan spasi:
-        //   /vip tambah +62 851-8945-5320
+        //   >vip tambah +62 851-8945-5320
         const target = args.slice(1).join(' ').trim();
 
         // ---------- lihat daftar ----------
@@ -709,7 +709,7 @@ async function handleOwner(message, perintah, args) {
                 await message.reply(
                     '✅ Daftar VIP kosong.\n\n' +
                     'Cara nambah: BALAS pesan orangnya, ' +
-                    'lalu ketik /vip tambah'
+                    'lalu ketik >vip tambah'
                 );
 
                 return;
@@ -732,7 +732,7 @@ async function handleOwner(message, perintah, args) {
         //
         // Bisa pakai kata kunci, ATAU langsung nomornya:
         //
-        //   /vip 0851-8945-5320
+        //   >vip 0851-8945-5320
         //
         // Jadi nggak perlu nulis "tambah" / "accepted" lagi.
         const gabungArg = args.join(' ').trim();
@@ -795,8 +795,8 @@ async function handleOwner(message, perintah, args) {
 
                 await message.reply(
                     '❌ Nggak tau siapa yang mau dijadikan VIP.\n\n' +
-                    'Tulis nomornya: /vip 0851-8945-5320\n' +
-                    'Atau BALAS pesan orangnya, lalu ketik /vip'
+                    'Tulis nomornya: >vip 0851-8945-5320\n' +
+                    'Atau BALAS pesan orangnya, lalu ketik >vip'
                 );
 
                 return;
@@ -811,7 +811,7 @@ async function handleOwner(message, perintah, args) {
                 await message.reply(
                     '❌ Nomornya kelihatan kurang lengkap: ' +
                     `${kunci}\n\n` +
-                    'Contoh yang benar: /vip 0851-8945-5320'
+                    'Contoh yang benar: >vip 0851-8945-5320'
                 );
 
                 return;
@@ -841,8 +841,8 @@ async function handleOwner(message, perintah, args) {
             if (!target) {
 
                 await message.reply(
-                    'Tulis nomornya. Contoh: /vip hapus 628123456\n' +
-                    'Atau lihat daftarnya dulu: /vip'
+                    'Tulis nomornya. Contoh: >vip hapus 628123456\n' +
+                    'Atau lihat daftarnya dulu: >vip'
                 );
 
                 return;
@@ -870,10 +870,10 @@ async function handleOwner(message, perintah, args) {
 
         await message.reply(
             'Cara pakai:\n' +
-            '/vip lrv            - lihat daftar\n' +
-            '/vip 0851-8945-5320 - tambah nomor\n' +
-            '/vip                - balas pesan orangnya\n' +
-            '/vip kick <nomor>   - keluarkan\n' +
+            '>vip lrv            - lihat daftar\n' +
+            '>vip 0851-8945-5320 - tambah nomor\n' +
+            '>vip                - balas pesan orangnya\n' +
+            '>vip kick <nomor>   - keluarkan\n' +
             '\n' +
             '(kata tambah/hapus/accepted juga masih jalan)'
         );
@@ -882,7 +882,7 @@ async function handleOwner(message, perintah, args) {
     }
 
     // ==================================================
-    // /spam on|off
+    // >spam on|off
     // ==================================================
 
     if (perintah === 'spam') {
@@ -893,8 +893,8 @@ async function handleOwner(message, perintah, args) {
 
             await message.reply(
                 'Cara pakai:\n' +
-                '/spam on   - nyalakan anti-spam\n' +
-                '/spam off  - matikan anti-spam\n\n' +
+                '>spam on   - nyalakan anti-spam\n' +
+                '>spam off  - matikan anti-spam\n\n' +
                 `Sekarang: ${spamAktif ? 'AKTIF' : 'MATI'}`
             );
 

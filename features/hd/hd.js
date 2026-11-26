@@ -440,7 +440,7 @@ async function handleHd(message, client) {
                 console.error('HD: penyebab terakhir:', galatUnduh.message);
             }
 
-            // Kalau API internalnya hilang, /hd memang tidak
+            // Kalau API internalnya hilang, >hd memang tidak
             // akan pernah bisa jalan sampai whatsapp-web.js
             // diperbarui. Jadi penting untuk kelihatan di log.
             console.error('HD: cek API internal WhatsApp Web ->', await cekInternalWa(client));
